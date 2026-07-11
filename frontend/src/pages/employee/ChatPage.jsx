@@ -135,6 +135,7 @@ export default function ChatPage() {
   return (
     <div className="h-[calc(100vh-6rem)] relative">
       <ChatLayout 
+        isConversationActive={!!activeConversation}
         sidebar={<ChatSidebar socket={socket} />} 
         area={<ChatArea socket={socket} />} 
       />

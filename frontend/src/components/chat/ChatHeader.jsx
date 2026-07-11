@@ -1,8 +1,9 @@
 import React from 'react';
-import { Phone, Video, MonitorUp, Info, Users, ShieldAlert } from 'lucide-react';
+import { Phone, Video, MonitorUp, Info, Users, ShieldAlert, ArrowLeft } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { useSelector, useDispatch } from 'react-redux';
 import { setActiveCall } from '../../store/slices/callSlice';
+import { setActiveConversation } from '../../store/slices/chatSlice';
 import api from '../../services/api';
 import { toast } from 'sonner';
 import { VideoPreJoinModal } from '../call/VideoPreJoinModal';
@@ -86,10 +87,19 @@ export function ChatHeader({ conversation, onToggleInfo, socket }) {
   const typingUsers = Object.keys(convTyping).filter(uid => convTyping[uid] && uid !== user.id);
 
   return (
-    <div className="h-16 border-b bg-card flex items-center justify-between px-6 shrink-0 shadow-sm z-10">
-      <div className="flex items-center gap-3">
+    <div className="h-16 border-b bg-card flex items-center justify-between px-4 md:px-6 shrink-0 shadow-sm z-10">
+      <div className="flex items-center gap-2 md:gap-3 overflow-hidden">
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="md:hidden shrink-0 mr-1 text-muted-foreground hover:text-foreground" 
+          onClick={() => dispatch(setActiveConversation(null))}
+          title="Back to Messages"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </Button>
         {conversation.avatar && (
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden border">
+          <div className="w-10 h-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden border">
             <img src={conversation.avatar} alt="avatar" className="w-full h-full object-cover" />
           </div>
         )}
