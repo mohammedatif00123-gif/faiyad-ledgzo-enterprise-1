@@ -11,6 +11,9 @@ router.get('/thread/:threadRootId', messageController.getReplies);
 
 // Message actions
 router.put('/:messageId', messageController.editMessage);
+router.post('/bulk-delete-everyone', messageController.bulkDeleteForEveryone);
+router.post('/bulk-delete-me', messageController.bulkDeleteForMe);
+router.post('/bulk-forward', messageController.bulkForward);
 router.delete('/:messageId/everyone', messageController.deleteForEveryone);
 router.delete('/:messageId/me', messageController.deleteForMe);
 

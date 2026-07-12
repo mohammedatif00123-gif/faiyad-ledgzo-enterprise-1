@@ -15,6 +15,7 @@ export function VideoCallPage({ socket }) {
   const dispatch = useDispatch();
   const { activeCall, networkQuality, participantStates } = useSelector(state => state.call);
   const { user } = useSelector(state => state.auth);
+  const { conversations } = useSelector(state => state.chat);
   
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(activeCall?.initialSettings?.isMuted || false);
@@ -29,11 +30,14 @@ export function VideoCallPage({ socket }) {
   const [screenShareStream, setScreenShareStream] = useState(null); // Local screen share stream
 
   const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== user.id).map(p => p._id || p) || [];
+  const conversation = conversations.find(c => c._id === activeCall?.conversationId);
+  const isGroupCall = conversation?.type === 'channel';
+
   const [participantsDetails, setParticipantsDetails] = useState({});
 
   const { 
     initWebRTC, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined,
-    toggleMute, toggleVideo, startScreenShare, stopScreenShare, cleanup, isReady, 
+    toggleMute, toggleVideo, startScreenShare, stopScreenShare, cleanup, forceCleanup, isReady, 
     localMediaStream, remoteMediaStreams 
   } = useWebRTC(socket, activeCall?.callId, user.id);
 
@@ -94,7 +98,7 @@ export function VideoCallPage({ socket }) {
 
   // Socket listeners for new features
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !activeCall || activeCall.callType === 'voice') return;
 
     const onOffer = async (data) => {
       if (data.callId === activeCall?.callId) {
@@ -165,19 +169,26 @@ export function VideoCallPage({ socket }) {
 
   // Duration timer
   useEffect(() => {
-    if (activeCall?.status !== 'Connected') return;
-    const interval = setInterval(() => setDuration(d => d + 1), 1000);
-    return () => clearInterval(interval);
+    if (activeCall?.status === 'Connecting') {
+      setDuration(0);
+    } else if (activeCall?.status === 'Connected') {
+      const interval = setInterval(() => setDuration(d => d + 1), 1000);
+      return () => clearInterval(interval);
+    }
   }, [activeCall?.status]);
 
   const handleEndCall = () => {
+    console.log('📞 Ending call intentionally');
     if (activeCall?.callId) {
       api.post(`/calls/${activeCall.callId}/end`).catch(console.error);
       socket.emit('call_end', { targetUserId: activeCall.participants[0], callId: activeCall.callId });
     }
     if (isScreenSharing) stopScreenShare();
-    cleanup();
+    console.log('🟡 Running useWebRTC cleanup');
+    forceCleanup();
+    console.log('🔵 Resetting Redux state');
     dispatch(endCall());
+    console.log('📞 Call ended successfully');
   };
 
   const handleToggleMute = () => {
@@ -259,7 +270,20 @@ export function VideoCallPage({ socket }) {
       
       {/* Top Header */}
       <div className="flex justify-between items-center p-4 bg-gradient-to-b from-black/80 to-transparent absolute top-0 left-0 right-0 z-10 pointer-events-none">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center"></div>
+        
+        <div className="flex flex-col items-center pointer-events-auto">
+          {isGroupCall && (
+            <span className="text-white font-bold bg-black/40 backdrop-blur-md px-3 py-1 rounded-full text-sm mb-1 border border-white/10">
+              {conversation?.name}
+            </span>
+          )}
+          <div className="px-4 py-1.5 bg-black/40 backdrop-blur-md rounded-full font-mono text-sm border border-white/10 tracking-widest text-center shadow-lg">
+            {formatDuration(duration)}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 pointer-events-auto">
           <div className={`p-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 flex items-center gap-2 px-3`}>
             <Signal className={`w-4 h-4 ${getNetworkColor()}`} />
             <span className="text-xs font-medium">{networkQuality}</span>

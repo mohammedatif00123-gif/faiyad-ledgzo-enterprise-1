@@ -1,4 +1,5 @@
-import { createSlice } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import api from '../../services/api';
 
 const initialState = {
   conversations: [],
@@ -10,15 +11,74 @@ const initialState = {
   readReceipts: {}, // { conversationId: unreadCount }
   drafts: {}, // { conversationId_parentMessageId: draftContent }
   pinnedMessages: {}, // { conversationId: [pins] }
+  pinnedConversations: JSON.parse(localStorage.getItem('pinned_conversations') || '[]'),
   bookmarks: [],
   loading: false,
 };
+
+export const updateGroupInfo = createAsyncThunk('chat/updateGroupInfo', async ({ conversationId, data }, { rejectWithValue }) => {
+  try {
+    const res = await api.put(`/chat/conversations/${conversationId}/info`, data);
+    return res.data.data;
+  } catch (error) {
+    return rejectWithValue(error.response?.data?.message || 'Failed to update group info');
+  }
+});
+
+export const addGroupMembers = createAsyncThunk('chat/addGroupMembers', async ({ conversationId, memberIds }, { rejectWithValue }) => {
+  try {
+    const res = await api.post(`/chat/conversations/${conversationId}/members`, { memberIds });
+    return res.data.data;
+  } catch (error) {
+    return rejectWithValue(error.response?.data?.message || 'Failed to add members');
+  }
+});
+
+export const removeGroupMember = createAsyncThunk('chat/removeGroupMember', async ({ conversationId, userId }, { rejectWithValue }) => {
+  try {
+    const res = await api.delete(`/chat/conversations/${conversationId}/members/${userId}`);
+    return res.data.data;
+  } catch (error) {
+    return rejectWithValue(error.response?.data?.message || 'Failed to remove member');
+  }
+});
+
+export const updateMemberRole = createAsyncThunk('chat/updateMemberRole', async ({ conversationId, userId, role }, { rejectWithValue }) => {
+  try {
+    const res = await api.put(`/chat/conversations/${conversationId}/members/${userId}/role`, { role });
+    return res.data.data;
+  } catch (error) {
+    return rejectWithValue(error.response?.data?.message || 'Failed to update role');
+  }
+});
+
+export const leaveGroup = createAsyncThunk('chat/leaveGroup', async (conversationId, { rejectWithValue }) => {
+  try {
+    await api.post(`/chat/conversations/${conversationId}/leave`);
+    return conversationId;
+  } catch (error) {
+    return rejectWithValue(error.response?.data?.message || 'Failed to leave group');
+  }
+});
+
+export const deleteGroup = createAsyncThunk('chat/deleteGroup', async (conversationId, { rejectWithValue }) => {
+  try {
+    await api.delete(`/chat/conversations/${conversationId}`);
+    return conversationId;
+  } catch (error) {
+    return rejectWithValue(error.response?.data?.message || 'Failed to delete group');
+  }
+});
 
 const chatSlice = createSlice({
   name: 'chat',
   initialState,
   reducers: {
     setConversations: (state, action) => { state.conversations = action.payload; },
+    updateConversation: (state, action) => {
+      const updatedConv = action.payload;
+      state.conversations = state.conversations.map(c => c._id === updatedConv._id ? { ...c, ...updatedConv } : c);
+    },
     removeConversation: (state, action) => {
       state.conversations = state.conversations.filter(c => c._id !== action.payload);
       if (state.activeConversation === action.payload) {
@@ -89,6 +149,16 @@ const chatSlice = createSlice({
       updateInArray(state.messages[conversationId]);
       if (threadRootId) updateInArray(state.threadMessages[threadRootId]);
     },
+    markConversationAsReadState: (state, action) => {
+      const { conversationId, readBy } = action.payload;
+      if (state.messages[conversationId]) {
+        state.messages[conversationId].forEach(msg => {
+          if (msg.sender?._id !== readBy && msg.status !== 'read') {
+            msg.status = 'read';
+          }
+        });
+      }
+    },
     removeMessage: (state, action) => {
       const { conversationId, messageId, threadRootId } = action.payload;
       if (state.messages[conversationId]) {
@@ -97,6 +167,16 @@ const chatSlice = createSlice({
       if (threadRootId && state.threadMessages[threadRootId]) {
         state.threadMessages[threadRootId] = state.threadMessages[threadRootId].filter(m => m._id !== messageId);
       }
+    },
+    removeMessagesBulk: (state, action) => {
+      const { conversationId, messageIds } = action.payload;
+      if (state.messages[conversationId]) {
+        state.messages[conversationId] = state.messages[conversationId].filter(m => !messageIds.includes(m._id));
+      }
+      // Also clean up threadMessages if any matches
+      Object.keys(state.threadMessages).forEach(rootId => {
+        state.threadMessages[rootId] = state.threadMessages[rootId].filter(m => !messageIds.includes(m._id));
+      });
     },
     setThreadMessages: (state, action) => {
       const { threadRootId, messages } = action.payload;
@@ -134,17 +214,44 @@ const chatSlice = createSlice({
     removeDraft: (state, action) => {
       delete state.drafts[action.payload];
     },
-    setLoading: (state, action) => { state.loading = action.payload; }
+    setLoading: (state, action) => { state.loading = action.payload; },
+    togglePinnedConversation: (state, action) => {
+      const convId = action.payload;
+      if (state.pinnedConversations.includes(convId)) {
+        state.pinnedConversations = state.pinnedConversations.filter(id => id !== convId);
+      } else {
+        state.pinnedConversations.push(convId);
+      }
+      localStorage.setItem('pinned_conversations', JSON.stringify(state.pinnedConversations));
+    }
   },
+  extraReducers: (builder) => {
+    builder.addCase(leaveGroup.fulfilled, (state, action) => {
+      state.conversations = state.conversations.filter(c => c._id !== action.payload);
+      if (state.activeConversation === action.payload) {
+        state.activeConversation = null;
+      }
+      delete state.messages[action.payload];
+      delete state.readReceipts[action.payload];
+    });
+    builder.addCase(deleteGroup.fulfilled, (state, action) => {
+      state.conversations = state.conversations.filter(c => c._id !== action.payload);
+      if (state.activeConversation === action.payload) {
+        state.activeConversation = null;
+      }
+      delete state.messages[action.payload];
+      delete state.readReceipts[action.payload];
+    });
+  }
 });
 
 export const { 
-  setConversations, removeConversation, setActiveConversation, setActiveThread, 
-  setMessages, addMessage, updateMessage, removeMessage, setThreadMessages,
+  setConversations, updateConversation, removeConversation, setActiveConversation, setActiveThread, 
+  setMessages, addMessage, updateMessage, removeMessage, removeMessagesBulk, setThreadMessages,
   setTyping, 
   setPinnedMessages, addPinnedMessage, removePinnedMessage,
   setBookmarks, addBookmark, removeBookmark,
   saveDraft, removeDraft,
-  setLoading 
+  setLoading, togglePinnedConversation 
 } = chatSlice.actions;
 export default chatSlice.reducer;

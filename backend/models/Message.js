@@ -5,7 +5,9 @@ const messageSchema = new mongoose.Schema({
   conversation: { type: mongoose.Schema.Types.ObjectId, ref: 'Conversation', required: true },
   sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   content: { type: String, default: '' },
-  messageType: { type: String, enum: ['text', 'system', 'call', 'voice'], default: 'text' },
+  messageType: { type: String, enum: ['text', 'system', 'call', 'voice', 'image', 'document'], default: 'text' },
+  isVoice: { type: Boolean, default: false },
+  voiceDuration: { type: Number },
   systemAction: {
     type: String,
     enum: [

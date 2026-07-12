@@ -50,6 +50,7 @@ export function VoiceCallPage({ socket }) {
   const dispatch = useDispatch();
   const { activeCall, networkQuality, participantStates } = useSelector(state => state.call);
   const { user } = useSelector(state => state.auth);
+  const { conversations } = useSelector(state => state.chat);
   
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
@@ -57,6 +58,9 @@ export function VoiceCallPage({ socket }) {
   const [showAddModal, setShowAddModal] = useState(false);
   
   const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== user.id).map(p => p._id || p) || [];
+  const conversation = conversations.find(c => c._id === activeCall?.conversationId);
+  const isGroupCall = conversation?.type === 'channel';
+
   const [participantsDetails, setParticipantsDetails] = useState({});
 
   const { 
@@ -182,6 +186,11 @@ export function VoiceCallPage({ socket }) {
           <span className="text-sm font-medium">{networkQuality} Connection</span>
         </div>
         <div className="flex items-center gap-4">
+          {isGroupCall && (
+            <div className="px-3 py-1 bg-white/10 rounded-full border border-white/20">
+              <span className="font-semibold text-white/90 text-sm">{conversation?.name}</span>
+            </div>
+          )}
           <div className="text-primary font-mono text-xl">
             {activeCall.status === 'Connected' ? formatDuration(duration) : activeCall.status}
           </div>

@@ -64,8 +64,32 @@ class CallService {
     // 5. Update Caller Presence
     await PresenceService.setStatus(callerId, 'In Call', getIO());
 
-    // 6. Generate System Message
-    await this._createSystemMessage(conversationId, callerId, '📞 Voice call started');
+    // 6. Emit call_ringing to all participants
+    const inviter = await require('../models/User').findById(callerId);
+    const io = getIO();
+    if (io) {
+      callParticipants.forEach(async (pId) => {
+        // Only ring online users
+        const presence = await PresenceService.getMyPresence(pId);
+        if (presence && presence.status !== 'Offline') {
+          io.to(`user_${pId.toString()}`).emit('call_ringing', {
+            callId: callSession._id,
+            conversationId,
+            from: callerId,
+            callType,
+            callerDetails: {
+              _id: inviter._id,
+              firstName: inviter.firstName,
+              lastName: inviter.lastName,
+              avatar: inviter.avatar
+            }
+          });
+        }
+      });
+    }
+
+    // 7. Generate System Message
+    await this._createSystemMessage(conversationId, callerId, 'call_log', `📞 ${callType === 'video' ? 'Video' : 'Voice'} call started`);
 
     return callSession;
   }
@@ -108,6 +132,10 @@ class CallService {
         }
       });
     }
+
+    const User = require('../models/User');
+    const u = await User.findById(userId);
+    await this._createSystemMessage(callSession.conversation, userId, `${u.firstName} joined the call`);
 
     return callSession;
   }
@@ -160,8 +188,16 @@ class CallService {
     callSession.endedAt = new Date();
     await callSession.save();
 
+    // Mark participant as left
+    await CallParticipant.updateMany(
+      { callSession: callId, leftAt: null },
+      { $set: { leftAt: new Date(), connectionState: 'closed' } }
+    );
+
     // Generate System Message
-    await this._createSystemMessage(callSession.conversation, callSession.initiatedBy, '📞 Call rejected');
+    const User = require('../models/User');
+    const u = await User.findById(userId);
+    await this._createSystemMessage(callSession.conversation, userId, `${u.firstName} declined the call`);
 
     // Reset Caller Presence
     await PresenceService.setStatus(callSession.initiatedBy, 'Online', getIO());
@@ -222,6 +258,12 @@ class CallService {
     callSession.endReason = 'timeout';
     await callSession.save();
 
+    // Mark participant as left
+    await CallParticipant.updateMany(
+      { callSession: callId, leftAt: null },
+      { $set: { leftAt: new Date(), connectionState: 'closed' } }
+    );
+
     await this._createSystemMessage(callSession.conversation, callSession.initiatedBy, '📞 Missed voice call');
     await PresenceService.setStatus(callSession.initiatedBy, 'Online', getIO());
 
@@ -238,12 +280,21 @@ class CallService {
       await participation.save();
 
       // Check remaining participants
-      const callId = participation.callSession;
-      const remaining = await CallParticipant.countDocuments({ callSession: callId, leftAt: null });
+      const callIdObj = participation.callSession;
+      
+      const callSessionDoc = await CallSession.findById(callIdObj);
+      if (callSessionDoc) {
+        // Generate System Message
+        const User = require('../models/User');
+        const u = await User.findById(userId);
+        await this._createSystemMessage(callSessionDoc.conversation, userId, `${u.firstName} left the call`);
+      }
+
+      const remaining = await CallParticipant.countDocuments({ callSession: callIdObj, leftAt: null });
       
       if (remaining < 2) {
         // End the call since less than 2 people are left
-        await this.endCall(callId, userId);
+        await this.endCall(callIdObj, userId);
       }
     }
   }

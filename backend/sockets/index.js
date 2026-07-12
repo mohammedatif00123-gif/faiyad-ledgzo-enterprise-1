@@ -83,15 +83,56 @@ const initSocket = (server) => {
     });
 
     socket.on('markAsRead', async ({ conversationId, messageId }) => {
-      await ReadReceipt.findOneAndUpdate(
-        { conversation: conversationId, user: socket.user.id },
-        { lastReadMessage: messageId, unreadCount: 0 }
-      );
-      socket.to(`room_${conversationId}`).emit('messageRead', {
-        conversationId,
-        userId: socket.user.id,
-        messageId
-      });
+      try {
+        await ReadReceipt.findOneAndUpdate(
+          { conversation: conversationId, user: socket.user.id },
+          { lastReadMessage: messageId, unreadCount: 0 },
+          { upsert: true }
+        );
+        
+        // If messageId is provided, just update that one. But actually, we should mark all unread as read.
+        if (messageId) {
+          await MessageService.updateDeliveryStatus(messageId, 'read');
+          io.to(`room_${conversationId}`).emit('message_status_update', {
+            conversationId,
+            messageId,
+            status: 'read'
+          });
+        }
+      } catch (err) {
+        console.error('Socket markAsRead error:', err);
+      }
+    });
+
+    socket.on('messageDelivered', async ({ conversationId, messageId }) => {
+      try {
+        await MessageService.updateDeliveryStatus(messageId, 'delivered');
+        io.to(`room_${conversationId}`).emit('message_status_update', {
+          conversationId,
+          messageId,
+          status: 'delivered'
+        });
+      } catch (err) {
+        console.error('Socket messageDelivered error:', err);
+      }
+    });
+
+    socket.on('markConversationAsRead', async ({ conversationId }) => {
+      try {
+        const Message = require('../models/Message');
+        // Update all unread messages in this conversation where sender is NOT the current user
+        await Message.updateMany(
+          { conversation: conversationId, sender: { $ne: socket.user.id }, status: { $ne: 'read' } },
+          { $set: { status: 'read' } }
+        );
+        
+        io.to(`room_${conversationId}`).emit('conversation_read', {
+          conversationId,
+          readBy: socket.user.id
+        });
+      } catch (err) {
+        console.error('Socket markConversationAsRead error:', err);
+      }
     });
 
     // --- WebRTC Events (Future-ready & Call) ---

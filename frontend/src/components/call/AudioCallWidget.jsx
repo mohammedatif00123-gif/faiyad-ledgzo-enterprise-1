@@ -22,7 +22,7 @@ export function AudioCallWidget({ socket }) {
 
   const { 
     initWebRTC, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined,
-    cleanup, isReady, remoteMediaStreams,
+    cleanup, forceCleanup, isReady, remoteMediaStreams,
     toggleMute
   } = useWebRTC(socket, activeCall?.callId, user.id, true);
 
@@ -42,14 +42,17 @@ export function AudioCallWidget({ socket }) {
   }, [JSON.stringify(targetUserIds)]);
 
   useEffect(() => {
-    if (activeCall && (activeCall.status === 'Connecting' || activeCall.status === 'Connected') && !isReady) {
+    if (activeCall && 
+        (activeCall.status === 'Connecting' || activeCall.status === 'Connected') && 
+        !isReady && 
+        activeCall.callType === 'voice') {
       initWebRTC();
     }
-  }, [activeCall?.status, isReady]);
+  }, [activeCall?.status, activeCall?.callType, isReady, initWebRTC]);
 
   // Socket listeners for WebRTC signaling
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !activeCall || activeCall.callType !== 'voice') return;
 
     const onOffer = async (data) => {
       if (data.callId === activeCall?.callId) {
@@ -94,7 +97,9 @@ export function AudioCallWidget({ socket }) {
 
   // Duration timer
   useEffect(() => {
-    if (activeCall?.status === 'Connected') {
+    if (activeCall?.status === 'Connecting') {
+      setDuration(0);
+    } else if (activeCall?.status === 'Connected') {
       const interval = setInterval(() => {
         setDuration(prev => prev + 1);
       }, 1000);
@@ -107,14 +112,18 @@ export function AudioCallWidget({ socket }) {
   }
 
   const handleHangUp = async () => {
+    console.log('📞 Ending audio call intentionally');
     try {
       await api.post(`/calls/${activeCall.callId}/end`);
       socket.emit('call_end', { targetUserId: targetUserIds[0], callId: activeCall.callId });
     } catch (err) {
       console.error(err);
     } finally {
-      cleanup();
+      console.log('🟡 Running useWebRTC cleanup');
+      forceCleanup();
+      console.log('🔵 Resetting Redux state');
       dispatch(endCall());
+      console.log('📞 Call ended successfully');
     }
   };
 

@@ -406,13 +406,19 @@ export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCanc
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className={`flex flex-col bg-muted/30 border ${replyTo ? 'rounded-b-xl border-t-0' : 'rounded-xl'} p-2 focus-within:ring-1 focus-within:ring-primary shadow-sm transition-all relative`}>
+        <form onSubmit={handleSubmit} className={`flex items-end gap-2 bg-muted/30 border ${replyTo ? 'rounded-b-xl border-t-0' : 'rounded-xl'} p-2 focus-within:ring-1 focus-within:ring-primary shadow-sm transition-all relative`}>
           
+          <div className="flex items-center gap-1 text-muted-foreground pb-1">
+            <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)} className={`p-1.5 hover:bg-muted hover:text-foreground rounded-full transition-colors ${showEmojiPicker ? 'text-primary' : ''}`} title="Emoji"><Smile className="w-5 h-5" /></button>
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" multiple />
+            <button type="button" onClick={() => fileInputRef.current?.click()} className="p-1.5 hover:bg-muted hover:text-foreground rounded-full transition-colors" title="Attach"><Paperclip className="w-5 h-5" /></button>
+          </div>
+
           {isRecording ? (
-            <div className="flex items-center gap-4 h-[60px] px-4 animate-pulse text-destructive font-medium">
+            <div className="flex-1 flex items-center gap-4 h-[40px] px-4 animate-pulse text-destructive font-medium">
               <div className="w-2 h-2 rounded-full bg-destructive" />
               Recording... {formatTime(recordingTime)}
-              <button type="button" onClick={stopRecording} className="ml-auto bg-destructive/10 text-destructive p-2 rounded-full hover:bg-destructive/20"><Square className="w-4 h-4" fill="currentColor" /></button>
+              <button type="button" onClick={stopRecording} className="ml-auto bg-destructive/10 text-destructive p-1.5 rounded-full hover:bg-destructive/20"><Square className="w-4 h-4" fill="currentColor" /></button>
             </div>
           ) : (
             <textarea
@@ -420,37 +426,24 @@ export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCanc
               value={content}
               onChange={handleTextChange}
               onKeyDown={handleKeyDown}
-              placeholder="Type a message... (Ctrl+Enter to send, Markdown supported)"
-              className="w-full bg-transparent border-0 focus:ring-0 text-sm resize-none min-h-[60px] p-2 custom-scrollbar"
+              placeholder="Type a message"
+              rows={1}
+              className="flex-1 bg-background border rounded-lg focus:ring-0 text-sm resize-none max-h-[80px] min-h-[40px] py-2.5 px-3 custom-scrollbar"
             />
           )}
           
-          <div className="flex items-center justify-between mt-2 px-2">
-            <div className="flex items-center gap-1 text-muted-foreground relative">
-              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" multiple />
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="p-1.5 hover:bg-muted hover:text-foreground rounded transition-colors" title="Attach file"><Paperclip className="w-4 h-4" /></button>
-              <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)} className={`p-1.5 hover:bg-muted hover:text-foreground rounded transition-colors ${showEmojiPicker ? 'text-primary' : ''}`} title="Emoji"><Smile className="w-4 h-4" /></button>
-              <button type="button" onClick={() => setContent(c => c + '@')} className="p-1.5 hover:bg-muted hover:text-foreground rounded transition-colors" title="Mention"><AtSign className="w-4 h-4" /></button>
-              <div className="w-px h-4 bg-border mx-1" />
-              <button type="button" onClick={() => setContent(c => c + '```\n\n```')} className="p-1.5 hover:bg-muted hover:text-foreground rounded transition-colors" title="Code Block"><Code className="w-4 h-4" /></button>
-              <button type="button" onClick={() => { fileInputRef.current.accept="image/*"; fileInputRef.current.click(); }} className="p-1.5 hover:bg-muted hover:text-foreground rounded transition-colors" title="Image"><ImageIcon className="w-4 h-4" /></button>
-              <button type="button" onClick={startRecording} disabled={isRecording || voiceBlob} className={`p-1.5 hover:bg-muted hover:text-foreground rounded transition-colors ${isRecording ? 'text-destructive' : ''}`} title="Voice note"><Mic className="w-4 h-4" /></button>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              {!isRecording && (
-                <span className="text-xs text-muted-foreground opacity-50 hidden sm:inline-block">
-                  {content.length} chars
-                </span>
-              )}
+          <div className="flex items-center gap-1 pb-1">
+            {!content.trim() && selectedFiles.length === 0 && !voiceBlob ? (
+              <button type="button" onClick={startRecording} disabled={isRecording} className={`p-2 hover:bg-muted hover:text-foreground rounded-full transition-colors ${isRecording ? 'text-destructive' : 'text-muted-foreground'}`} title="Voice note"><Mic className="w-5 h-5" /></button>
+            ) : (
               <button 
                 type="submit" 
-                disabled={(!content.trim() && selectedFiles.length === 0 && !voiceBlob) || isRecording || isUploading}
-                className="p-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-all shadow-sm flex items-center gap-2"
+                disabled={isRecording || isUploading}
+                className="p-2 bg-primary text-primary-foreground rounded-full hover:bg-primary/90 disabled:opacity-50 transition-all shadow-sm flex items-center justify-center"
               >
-                {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-4 h-4 ml-0.5" />}
               </button>
-            </div>
+            )}
           </div>
         </form>
       </div>

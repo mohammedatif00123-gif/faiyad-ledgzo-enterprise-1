@@ -5,6 +5,7 @@ import { endCall } from '../../store/slices/callSlice';
 import api from '../../services/api';
 import { getAvatarUrl } from '../../utils/avatar';
 import { motion } from 'framer-motion';
+import { audioUtils } from '../../utils/audioUtils';
 
 export function OutgoingCallModal({ socket }) {
   const dispatch = useDispatch();
@@ -28,6 +29,15 @@ export function OutgoingCallModal({ socket }) {
     }
   }, [targetUserId]);
 
+  useEffect(() => {
+    if (activeCall?.status === 'Ringing' && activeCall?.isInitiator) {
+      audioUtils.playRingingSound();
+    }
+    return () => {
+      audioUtils.stopAll();
+    };
+  }, [activeCall?.status, activeCall?.isInitiator]);
+
   if (!activeCall || activeCall.status !== 'Ringing' || !activeCall.isInitiator) return null;
 
   const handleCancel = async () => {
@@ -49,8 +59,8 @@ export function OutgoingCallModal({ socket }) {
       dragMomentum={false}
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="fixed z-[100] w-64 h-64 rounded-full bg-slate-900 shadow-2xl flex flex-col items-center justify-center cursor-grab active:cursor-grabbing text-white border-2 border-slate-700/50"
-      style={{ top: '80px', right: '40px', touchAction: 'none' }}
+      className="fixed z-[100] w-[90%] max-w-[280px] sm:w-64 h-64 rounded-full bg-slate-900 shadow-2xl flex flex-col items-center justify-center cursor-grab active:cursor-grabbing text-white border-2 border-slate-700/50 top-4 right-1/2 translate-x-1/2 sm:translate-x-0 sm:right-10 sm:top-20"
+      style={{ touchAction: 'none' }}
     >
       <div className="flex flex-col items-center pointer-events-none">
         <div className="relative mb-3">
@@ -78,9 +88,6 @@ export function OutgoingCallModal({ socket }) {
       >
         <PhoneOff className="w-5 h-5" />
       </button>
-
-      {/* Outgoing Ringtone Audio Element */}
-      <audio src="/sounds/calling.mp3" autoPlay loop className="hidden" />
     </motion.div>
   );
 }

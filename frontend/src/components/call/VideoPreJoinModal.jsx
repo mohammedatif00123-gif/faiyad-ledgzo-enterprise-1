@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Mic, MicOff, Video, VideoOff } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { getAvatarUrl } from '../../utils/avatar';
 
 export function VideoPreJoinModal({ user, onJoin, onCancel, callType }) {
@@ -60,19 +61,26 @@ export function VideoPreJoinModal({ user, onJoin, onCancel, callType }) {
   const handleJoin = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
     }
-    onJoin({ isMuted: !isAudioEnabled, isVideoEnabled });
+    // Add a short delay to allow the browser to release the camera lock
+    setTimeout(() => {
+      onJoin({ isMuted: !isAudioEnabled, isVideoEnabled });
+    }, 300);
   };
 
   const handleCancel = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
     }
     onCancel();
   };
 
-  return (
-    <div className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-4">
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -146,6 +154,7 @@ export function VideoPreJoinModal({ user, onJoin, onCancel, callType }) {
           </div>
         </div>
       </motion.div>
-    </div>
+    </div>,
+    document.body
   );
 }

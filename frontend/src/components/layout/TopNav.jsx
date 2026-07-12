@@ -20,18 +20,18 @@ export function TopNav({ toggleSidebar, onOpenCommandPalette }) {
   };
 
   return (
-    <header className="sticky top-0 z-40 flex h-16 w-full items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur-xl md:px-6">
+    <header className="sticky top-0 z-40 flex h-16 w-full items-center justify-between border-b border-[var(--ent-border)] bg-[var(--ent-surface)]/80 px-4 backdrop-blur-xl md:px-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={toggleSidebar} className="md:hidden">
+        <Button variant="ghost" size="icon" onClick={toggleSidebar} className="md:hidden text-[var(--ent-text-secondary)]">
           <Menu className="h-5 w-5" />
           <span className="sr-only">Toggle Sidebar</span>
         </Button>
         <div className="hidden md:flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ent-primary)] text-white font-bold">
             L
           </div>
-          <span className="text-lg font-bold tracking-tight">Ledgzo</span>
-          <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+          <span className="text-lg font-bold tracking-tight text-[var(--ent-text-primary)]">Ledgzo</span>
+          <span className="ml-2 rounded-full bg-[var(--ent-primary)]/10 px-2 py-0.5 text-xs font-medium text-[var(--ent-primary)]">
             Production
           </span>
         </div>

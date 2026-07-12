@@ -80,7 +80,7 @@ class MessageService {
   }
 
   async updateDeliveryStatus(messageId, status) {
-    return await MessageRepository.update(messageId, { status });
+    return await MessageRepository.updateById(messageId, { status });
   }
 }
 

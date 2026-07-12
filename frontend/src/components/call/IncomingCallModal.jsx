@@ -10,25 +10,76 @@ import { VideoPreJoinModal } from './VideoPreJoinModal';
 export function IncomingCallModal({ socket }) {
   const dispatch = useDispatch();
   const { incomingCall, isCallModalOpen } = useSelector(state => state.call);
+  const { conversations } = useSelector(state => state.chat);
   const user = useSelector(state => state.auth.user);
   const [showPreJoin, setShowPreJoin] = useState(false);
 
   useEffect(() => {
-    if (isCallModalOpen && navigator.vibrate) {
-      // Vibrate pattern: 1s on, 1s off
-      const interval = setInterval(() => {
-        navigator.vibrate(1000);
-      }, 2000);
-      return () => {
-        clearInterval(interval);
-        navigator.vibrate(0);
-      };
+    let audioCtx;
+    let oscillator;
+    let gainNode;
+    let intervalId;
+
+    if (isCallModalOpen) {
+      if (navigator.vibrate) {
+        intervalId = setInterval(() => {
+          navigator.vibrate(1000);
+        }, 2000);
+      }
+
+      // Simple Web Audio API Ringtone
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        oscillator = audioCtx.createOscillator();
+        gainNode = audioCtx.createGain();
+        
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // A4
+        
+        // Pulse volume
+        gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.1);
+        gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+        
+        setInterval(() => {
+          if (audioCtx.state === 'running') {
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.1);
+            gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+            
+            setTimeout(() => {
+              gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+              gainNode.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.1);
+              gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+            }, 600);
+          }
+        }, 2000);
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+      } catch (e) {
+        console.log("AudioContext not supported or blocked");
+      }
     }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+      if (navigator.vibrate) navigator.vibrate(0);
+      if (oscillator) {
+        try { oscillator.stop(); oscillator.disconnect(); } catch(e){}
+      }
+      if (audioCtx) {
+        try { audioCtx.close(); } catch(e){}
+      }
+    };
   }, [isCallModalOpen]);
 
   if (!isCallModalOpen || !incomingCall) return null;
 
-  const { callerDetails, callId } = incomingCall;
+  const { callerDetails, callId, conversationId } = incomingCall;
+  const conversation = conversations.find(c => c._id === conversationId);
+  const isGroupCall = conversation?.type === 'channel';
 
   const executeAccept = async (initialSettings = {}) => {
     try {
@@ -44,6 +95,7 @@ export function IncomingCallModal({ socket }) {
         callType: incomingCall.callType,
         initialSettings
       }));
+      dispatch(clearIncomingCall());
     } catch (err) {
       console.error('Failed to accept call', err);
       dispatch(clearIncomingCall());
@@ -81,8 +133,8 @@ export function IncomingCallModal({ socket }) {
         dragMomentum={false}
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="fixed z-[100] w-72 rounded-[2rem] bg-slate-900 shadow-2xl flex flex-col items-center justify-center cursor-grab active:cursor-grabbing text-white border-2 border-slate-700/50 p-5"
-        style={{ top: '80px', right: '40px', touchAction: 'none' }}
+        className="fixed z-[100] w-[90%] max-w-[280px] sm:w-72 rounded-[2rem] bg-slate-900 shadow-2xl flex flex-col items-center justify-center cursor-grab active:cursor-grabbing text-white border-2 border-slate-700/50 p-5 top-4 right-1/2 translate-x-1/2 sm:translate-x-0 sm:right-10 sm:top-20"
+        style={{ touchAction: 'none' }}
       >
         <div className="flex flex-col items-center pointer-events-none w-full">
           {/* Pulsing Avatar */}
@@ -100,12 +152,20 @@ export function IncomingCallModal({ socket }) {
             </div>
           </div>
 
-          <h3 className="text-lg font-semibold text-white mb-0.5 truncate w-full text-center px-2">
-            {callerDetails?.firstName} {callerDetails?.lastName}
-          </h3>
-          <p className="text-xs text-slate-400 mb-5">
-            Incoming {incomingCall.callType === 'video' ? 'Video' : 'Voice'} Call...
-          </p>
+          <div className="text-center w-full px-2 mb-5">
+            <h3 className="text-lg font-bold text-white truncate max-w-full">
+              {isGroupCall ? conversation?.name : `${callerDetails?.firstName} ${callerDetails?.lastName}`}
+            </h3>
+            <p className="text-xs text-slate-300 flex items-center justify-center gap-1 mt-1 font-medium">
+              {incomingCall.callType === 'video' ? <Video className="w-3.5 h-3.5"/> : <Phone className="w-3.5 h-3.5"/>}
+              {incomingCall.callType === 'video' ? 'Incoming video call' : 'Incoming voice call'}
+            </p>
+            {isGroupCall && (
+              <p className="text-[10px] text-slate-400 mt-1 truncate">
+                from {callerDetails?.firstName} {callerDetails?.lastName}
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="flex w-full justify-center gap-6 px-4 pointer-events-auto">
@@ -134,9 +194,6 @@ export function IncomingCallModal({ socket }) {
           </button>
         </div>
       </motion.div>
-      
-      {/* Ringtone Audio Element */}
-      <audio src="/sounds/ringtone.mp3" autoPlay loop className="hidden" />
 
       {showPreJoin && (
         <VideoPreJoinModal 

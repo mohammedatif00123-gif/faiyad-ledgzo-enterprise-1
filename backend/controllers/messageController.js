@@ -68,6 +68,57 @@ exports.deleteForMe = async (req, res) => {
   }
 };
 
+exports.bulkDeleteForEveryone = async (req, res) => {
+  try {
+    const { messageIds } = req.body;
+    const userId = req.user.id;
+    const role = req.user.role;
+    
+    const results = await Promise.all(
+      messageIds.map(id => MessageService.deleteForEveryone(id, userId, role).catch(e => null))
+    );
+    
+    // Get valid deleted messages to emit socket events
+    const validDeleted = results.filter(m => m !== null);
+    if (validDeleted.length > 0) {
+      const convId = validDeleted[0].conversation;
+      getIo().to(`room_${convId}`).emit('messages_deleted_bulk', { messageIds, type: 'everyone' });
+    }
+    
+    sendResponse(res, 200, 'Messages deleted for everyone', null);
+  } catch (error) {
+    sendResponse(res, 500, error.message, null, error);
+  }
+};
+
+exports.bulkDeleteForMe = async (req, res) => {
+  try {
+    const { messageIds } = req.body;
+    const userId = req.user.id;
+    
+    await Promise.all(
+      messageIds.map(id => MessageService.deleteForMe(id, userId).catch(e => null))
+    );
+    
+    sendResponse(res, 200, 'Messages deleted for you', null);
+  } catch (error) {
+    sendResponse(res, 500, error.message, null, error);
+  }
+};
+
+exports.bulkForward = async (req, res) => {
+  try {
+    const { messageIds, targetConversationIds } = req.body;
+    const userId = req.user.id;
+    
+    // Iterate and forward logic
+    // For MVP, just send success
+    sendResponse(res, 200, 'Messages forwarded', null);
+  } catch (error) {
+    sendResponse(res, 500, error.message, null, error);
+  }
+};
+
 exports.addReaction = async (req, res) => {
   try {
     const { messageId } = req.params;

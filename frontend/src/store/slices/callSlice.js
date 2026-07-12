@@ -29,11 +29,23 @@ const callSlice = createSlice({
     },
     updateCallStatus: (state, action) => {
       if (state.activeCall) {
-        state.activeCall.status = action.payload;
+        // action.payload can be a string (status) or an object { status, callId }
+        const status = typeof action.payload === 'string' ? action.payload : action.payload.status;
+        const callId = typeof action.payload === 'string' ? null : action.payload.callId;
+        
+        if (callId && state.activeCall.callId !== callId) return;
+        state.activeCall.status = status;
       }
     },
-    endCall: (state) => {
+    endCall: (state, action) => {
+      const targetCallId = action.payload;
+      if (targetCallId && state.activeCall && state.activeCall.callId !== targetCallId) {
+        console.log('Skipping endCall because activeCall is different');
+        return;
+      }
+      console.log('🔵 Resetting Redux call state');
       state.activeCall = null;
+      state.incomingCall = null;
       state.participantStates = {};
       state.isCallModalOpen = false;
     },

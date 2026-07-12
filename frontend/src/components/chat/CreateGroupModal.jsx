@@ -64,11 +64,11 @@ export function CreateGroupModal({ onClose }) {
         name,
         description,
         visibility,
-        memberIds: selectedIds,
+        members: selectedIds,
         avatar: avatarUrl
       };
 
-      const res = await api.post('/groups', payload);
+      const res = await api.post('/chat/channel', payload);
       dispatch(setConversations([res.data.data, ...conversations]));
       onClose();
     } catch (err) {

@@ -34,7 +34,7 @@ class MessageRepository extends BaseRepository {
   }
 
   async markDeletedForEveryone(messageId) {
-    return await this.update(messageId, { isDeleted: true });
+    return await this.updateById(messageId, { isDeleted: true });
   }
 
   async markDeletedForUser(messageId, userId) {

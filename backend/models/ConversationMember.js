@@ -48,6 +48,10 @@ const conversationMemberSchema = new mongoose.Schema({
   isMuted: {
     type: Boolean,
     default: false,
+  },
+  isPinned: {
+    type: Boolean,
+    default: false,
   }
 }, {
   timestamps: true

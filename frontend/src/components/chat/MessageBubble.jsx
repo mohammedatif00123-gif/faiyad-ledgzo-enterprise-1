@@ -1,94 +1,84 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css'; 
 import { Avatar } from '../ui/Avatar';
 import { ReactionBar } from './ReactionBar';
-import { Reply, Check, CheckCheck, Forward, Phone, Calendar } from 'lucide-react';
+import { Reply, Forward, Phone, Calendar, CheckSquare, Square } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
+import { MessageTicks } from './MessageTicks';
+import { MessageActions } from './MessageActions';
+import { EmojiPicker } from './EmojiPicker';
+import { formatMessageTime } from '../../utils/messageUtils';
+import { MessageImage } from './MessageImage';
 
 // Lazy loaded rich components
 const AudioPlayer = React.lazy(() => import('./AudioPlayer'));
-const ImageViewer = React.lazy(() => import('./ImageViewer'));
 const DocumentCard = React.lazy(() => import('./DocumentCard'));
 const VideoPlayer = React.lazy(() => import('./VideoPlayer'));
 
-export const MessageBubble = React.memo(({ message, isOwn, onContextMenu }) => {
+export const MessageBubble = React.memo(({ 
+  message, 
+  isOwn, 
+  onReply, 
+  onForward, 
+  onDeleteForMe, 
+  onDeleteForEveryone, 
+  onReact, 
+  onPin,
+  isSelectingMode,
+  isSelected,
+  onToggleSelect,
+  searchQuery
+}) => {
   const { user } = useSelector(state => state.auth);
+  const [isHovered, setIsHovered] = useState(false);
 
   if (!message) return null;
 
   if (message.isDeleted) {
     return (
-      <div className={`flex w-full mb-4 ${isOwn ? 'justify-end' : 'justify-start'}`}>
-        <div className="px-4 py-2 bg-muted text-muted-foreground italic rounded-2xl text-sm border border-dashed">
-          This message was deleted
+      <div className={`flex w-full mb-2 ${isOwn ? 'justify-end' : 'justify-start'}`}>
+        <div className="px-3 py-1.5 dark:bg-[#202c33] bg-white text-slate-500 italic rounded-lg text-sm shadow-sm flex items-center gap-2">
+          🚫 This message was deleted
+          <span className="text-[10px] ml-2">{formatMessageTime(message.createdAt)}</span>
         </div>
       </div>
     );
   }
 
-  // Hide if deleted for me
   if (message.deletedForMe?.includes(user.id)) return null;
-
-  const handleContextMenu = (e) => {
-    e.preventDefault();
-    if (onContextMenu) {
-      onContextMenu(e.clientX, e.clientY, message);
-    }
-  };
 
   const renderAttachments = () => {
     if (!message.attachments || message.attachments.length === 0) return null;
     
-    // Voice Message
-    if (message.messageType === 'voice') {
+    if (message.messageType === 'voice' || message.isVoice) {
       const att = message.attachments[0];
       return (
-        <React.Suspense fallback={<div className="h-10 w-40 bg-muted animate-pulse rounded-full"></div>}>
+        <React.Suspense fallback={<div className="h-10 w-40 bg-slate-700 animate-pulse rounded-full"></div>}>
           <AudioPlayer src={import.meta.env.VITE_API_URL + att.fileUrl} />
         </React.Suspense>
       );
     }
 
-    // Standard Attachments
     return (
-      <div className="flex flex-wrap gap-2 mb-2">
-        {message.attachments.map((att, idx) => {
+      <div className="flex flex-wrap gap-1 mb-1">
+        {message.attachments.map((att) => {
           const url = import.meta.env.VITE_API_URL + att.fileUrl;
-          if (att.fileType === 'image') {
-            return (
-              <div key={att._id} className="max-w-[250px] overflow-hidden rounded-md bg-black/10">
-                <React.Suspense fallback={<div className="w-[200px] h-[150px] bg-muted animate-pulse"></div>}>
-                  <ImageViewer 
-                    src={url} 
-                    alt={att.fileName} 
-                    images={message.attachments.filter(a => a.fileType === 'image').map(a => import.meta.env.VITE_API_URL + a.fileUrl)} 
-                    initialIndex={message.attachments.filter(a => a.fileType === 'image').findIndex(a => a._id === att._id)}
-                  />
-                </React.Suspense>
-              </div>
-            );
-          }
+          if (att.fileType === 'image') return <MessageImage key={att._id} attachment={att} />;
           if (att.fileType === 'video') {
             return (
               <div key={att._id} className="max-w-[300px]">
-                <React.Suspense fallback={<div className="w-[300px] h-[200px] bg-muted animate-pulse rounded"></div>}>
+                <React.Suspense fallback={<div className="w-[300px] h-[200px] bg-slate-700 animate-pulse rounded-lg"></div>}>
                   <VideoPlayer src={url} />
                 </React.Suspense>
               </div>
             );
           }
-          // Document
           return (
-            <React.Suspense key={att._id} fallback={<div className="w-[250px] h-16 bg-muted animate-pulse rounded-md"></div>}>
-              <DocumentCard 
-                fileUrl={url} 
-                fileName={att.fileName} 
-                fileSize={att.fileSize} 
-                fileType={att.fileType} 
-              />
+            <React.Suspense key={att._id} fallback={<div className="w-[250px] h-16 bg-slate-700 animate-pulse rounded-lg"></div>}>
+              <DocumentCard fileUrl={url} fileName={att.fileName} fileSize={att.fileSize} fileType={att.fileType} />
             </React.Suspense>
           );
         })}
@@ -99,110 +89,160 @@ export const MessageBubble = React.memo(({ message, isOwn, onContextMenu }) => {
   const renderSpecialMessageType = () => {
     if (message.messageType === 'call') {
       return (
-        <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-xl border border-primary/20">
-          <div className="p-2 bg-primary/10 text-primary rounded-full">
-            <Phone className="w-5 h-5" />
+        <div className="flex items-center gap-2 p-2 bg-slate-800/50 rounded-lg border border-primary/20 mb-1">
+          <div className="p-2 bg-primary/20 text-primary rounded-full">
+            <Phone className="w-4 h-4" />
           </div>
           <div>
             <p className="font-semibold text-sm">Call Started</p>
-            <p className="text-xs text-muted-foreground">Click to join the ongoing call</p>
           </div>
         </div>
       );
     }
     if (message.messageType === 'meeting') {
       return (
-        <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-xl border border-blue-500/20">
-          <div className="p-2 bg-blue-500/10 text-blue-500 rounded-full">
-            <Calendar className="w-5 h-5" />
+        <div className="flex items-center gap-2 p-2 bg-slate-800/50 rounded-lg border border-blue-500/20 mb-1">
+          <div className="p-2 bg-blue-500/20 text-blue-500 rounded-full">
+            <Calendar className="w-4 h-4" />
           </div>
           <div>
             <p className="font-semibold text-sm">Meeting Scheduled</p>
-            <p className="text-xs text-muted-foreground">{message.content}</p>
           </div>
-        </div>
-      );
-    }
-    if (message.messageType === 'system') {
-      return (
-        <div className="px-4 py-2 bg-muted text-muted-foreground italic rounded-2xl text-xs text-center border-dashed my-4 mx-auto w-fit">
-          {message.content}
         </div>
       );
     }
     return null;
   };
 
-  // If system message, render completely differently
   if (message.messageType === 'system') {
     return (
-      <div className="flex w-full justify-center">
-        {renderSpecialMessageType()}
+      <div className="flex w-full justify-center my-4">
+        <div className="px-4 py-1.5 dark:bg-slate-800 bg-slate-200 text-slate-500 dark:text-slate-400 rounded-lg text-xs font-medium shadow-sm">
+          {message.content}
+        </div>
       </div>
     );
   }
 
+  // Handle highlighted search query
+  const renderContent = () => {
+    if (!message.content) return null;
+    let content = message.content;
+    
+    // Very basic highlight implementation
+    if (searchQuery && content.toLowerCase().includes(searchQuery.toLowerCase())) {
+      const parts = content.split(new RegExp(`(${searchQuery})`, 'gi'));
+      return parts.map((part, i) => 
+        part.toLowerCase() === searchQuery.toLowerCase() ? 
+        <mark key={i} className="bg-yellow-400 text-black px-0.5 rounded">{part}</mark> : 
+        part
+      );
+    }
+
+    return (
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+        {content}
+      </ReactMarkdown>
+    );
+  };
+
   return (
-    <div
-      className={`flex w-full mb-4 group ${isOwn ? 'justify-end' : 'justify-start'}`}
-      onContextMenu={handleContextMenu}
+    <div 
+      className={`flex w-full mb-1 transition-all ${isSelectingMode ? 'cursor-pointer hover:bg-primary/5 pl-2 rounded-lg' : ''}`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={() => isSelectingMode && onToggleSelect(message._id)}
     >
-      <div className={`flex max-w-[90%] md:max-w-[75%] ${isOwn ? 'flex-row-reverse' : 'flex-row'} items-end gap-2 relative`}>
-        {!isOwn && (
-          <Avatar
-            src={message.sender?.avatar}
-            fallback={message.sender?.firstName?.[0] || 'U'}
-            className="w-8 h-8 shrink-0 mb-1 shadow-sm"
-          />
-        )}
+      {isSelectingMode && (
+        <div className="flex items-center justify-center w-10 shrink-0">
+          {isSelected ? <CheckSquare className="w-5 h-5 text-primary" /> : <Square className="w-5 h-5 text-muted-foreground" />}
+        </div>
+      )}
 
-        <div className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
-          {!isOwn && <span className="text-xs text-muted-foreground mb-1 ml-1 font-medium">{message.sender?.firstName} {message.sender?.lastName}</span>}
+      <div className={`flex w-full ${isOwn ? 'justify-end' : 'justify-start'}`}>
+        <div className={`flex max-w-[70%] md:max-w-[65%] ${isOwn ? 'flex-row-reverse' : 'flex-row'} items-start gap-2 group relative`}>
+          
 
-          {message.parentMessage && (
-            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1 opacity-75 truncate max-w-[200px] md:max-w-[300px] cursor-pointer hover:underline border-l-2 border-primary pl-2 ml-1">
-              <Reply className="w-3 h-3" />
-              <span className="truncate font-medium">{message.parentMessage.sender?.firstName}:</span>
-              <span className="truncate">{message.parentMessage.content || 'Attachment'}</span>
-            </div>
-          )}
 
-          {message.isForwarded && (
-            <div className="text-[10px] text-muted-foreground italic mb-0.5 flex items-center gap-1">
-              <Forward className="w-3 h-3" /> Forwarded
-            </div>
-          )}
+          <div className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'} relative`}>
+            {!isOwn && (
+               <span className="text-xs text-primary mb-1 ml-3 font-semibold">{message.sender?.firstName} {message.sender?.lastName}</span>
+            )}
 
-          <div className={`px-4 py-3 rounded-2xl shadow-sm ${isOwn ? 'bg-primary text-primary-foreground rounded-br-sm' : 'bg-muted text-foreground rounded-bl-sm'} relative`}>
-            
-            {['call', 'meeting'].includes(message.messageType) && renderSpecialMessageType()}
+            {/* Chat Bubble */}
+            <div 
+              className={`relative px-3 py-2 shadow-[var(--ent-shadow)] min-w-[80px] ${
+                isOwn 
+                  ? 'bg-[var(--own-bg)] text-[var(--own-text)]' 
+                  : 'bg-[var(--other-bg)] text-[var(--other-text)]'
+              }`}
+              style={{
+                borderRadius: isOwn ? 'var(--own-border-radius)' : 'var(--other-border-radius)'
+              }}
+            >
+              
+              {/* Hover Actions inside bubble */}
+              {!isSelectingMode && (
+                <div className={`absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-end z-20 w-16 h-8 bg-gradient-to-l ${isOwn ? 'from-[var(--own-bg)]' : 'from-[var(--other-bg)]'} to-transparent rounded-tr-lg pr-1`}>
+                  <div className="flex items-center gap-0.5 pt-1">
+                    <EmojiPicker onEmojiSelect={(emoji) => onReact && onReact(message._id, emoji)} isOwn={isOwn} />
+                    <MessageActions 
+                      isOwn={isOwn}
+                      onReply={() => onReply && onReply(message)}
+                      onForward={() => onForward && onForward(message)}
+                      onCopy={() => navigator.clipboard.writeText(message.content)}
+                      onPin={() => onPin && onPin(message)}
+                      onStar={() => onStar && onStar(message)}
+                      onDeleteForMe={() => onDeleteForMe && onDeleteForMe(message._id)}
+                      onDeleteForEveryone={() => onDeleteForEveryone && onDeleteForEveryone(message._id)}
+                    />
+                  </div>
+                </div>
+              )}
+              
+              {message.isForwarded && (
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mb-1 flex items-center gap-1">
+                  <Forward className="w-3 h-3" /> Forwarded
+                </div>
+              )}
 
-            {renderAttachments()}
+              {message.parentMessage && (
+                <div 
+                  className="bg-black/5 dark:bg-black/20 rounded p-2 mb-1 text-sm border-l-4 border-primary cursor-pointer hover:bg-black/10 dark:hover:bg-black/30 transition-colors"
+                >
+                  <div className="font-semibold text-primary text-xs mb-0.5">
+                    {message.parentMessage.sender?.firstName}
+                  </div>
+                  <div className="text-slate-600 dark:text-slate-300 truncate max-w-[200px] text-xs">
+                    {message.parentMessage.content || (message.parentMessage.attachments?.length > 0 ? 'Photo/Media' : 'Voice Message')}
+                  </div>
+                </div>
+              )}
 
-            {message.content && !['call', 'meeting'].includes(message.messageType) && (
-              <div className="text-[15px] leading-relaxed prose prose-sm dark:prose-invert max-w-none break-words">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                  {message.content}
-                </ReactMarkdown>
+              {['call', 'meeting'].includes(message.messageType) && renderSpecialMessageType()}
+              {renderAttachments()}
+
+              <div className="flex items-end gap-3 justify-between">
+                {message.content && !['call', 'meeting'].includes(message.messageType) && (
+                  <div className="text-[14.5px] leading-snug prose prose-sm dark:prose-invert max-w-none break-words py-0.5">
+                    {renderContent()}
+                  </div>
+                )}
+                
+                {/* WhatsApp style time and ticks inside the bubble */}
+                <div className="flex items-center gap-1 mt-1 ml-3 shrink-0 self-end opacity-70">
+                  {message.isEdited && <span className="text-[10px] italic mr-1">edited</span>}
+                  <span className="text-[10px] font-medium whitespace-nowrap">
+                    {formatMessageTime(message.createdAt)}
+                  </span>
+                  {isOwn && <MessageTicks status={message.status} />}
+                </div>
               </div>
-            )}
+            </div>
 
-            {message.isEdited && (
-              <span className="text-[10px] opacity-70 ml-2 italic">(edited)</span>
-            )}
-          </div>
-
-          <ReactionBar reactions={message.reactions} currentUserId={user.id} onReact={() => { }} />
-
-          <div className="flex items-center gap-1 mt-1 mx-1">
-            <span className="text-[10px] text-muted-foreground font-medium">
-              {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
-            {isOwn && (
-              <span className="text-muted-foreground">
-                {message.status === 'read' ? <CheckCheck className="w-3.5 h-3.5 text-blue-500" /> : <Check className="w-3.5 h-3.5" />}
-              </span>
-            )}
+            <div className="mt-0.5">
+              <ReactionBar reactions={message.reactions} currentUserId={user.id} onReact={(emoji) => onReact && onReact(message._id, emoji)} />
+            </div>
           </div>
         </div>
       </div>
