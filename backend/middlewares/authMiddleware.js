@@ -2,16 +2,13 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { UnauthorizedError, ForbiddenError } = require('../utils/errors');
 const { ROLES, STATUSES } = require('../constants');
+const { extractAuthToken } = require('../utils/authToken');
 
 /**
  * Protect routes by verifying JWT access token
  */
 const protect = async (req, res, next) => {
-  let token;
-
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-    token = req.headers.authorization.split(' ')[1];
-  }
+  const token = extractAuthToken(req);
 
   if (!token) {
     return next(new UnauthorizedError('Not authorized, no token provided'));

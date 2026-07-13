@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { motion } from 'framer-motion';
-import { PhoneOff, Mic, MicOff, MoreHorizontal, Settings, Users } from 'lucide-react';
+import { PhoneOff, Mic, MicOff, MoreHorizontal, Settings, Users, Signal, Volume2, Phone, UserPlus } from 'lucide-react';
 import { useWebRTC } from '../../hooks/useWebRTC';
 import { endCall, setActiveCall, updateParticipantState } from '../../store/slices/callSlice';
 import api from '../../services/api';
 import { getAvatarUrl } from '../../utils/avatar';
 
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { ParticipantTile } from './VoiceCallPage';
+import { AddParticipantModal } from './AddParticipantModal';
+import { VideoSettingsModal } from './VideoSettingsModal';
 
 export function AudioCallWidget({ socket }) {
   const dispatch = useDispatch();
@@ -19,6 +22,12 @@ export function AudioCallWidget({ socket }) {
 
   const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== user.id).map(p => p._id || p) || [];
   const [participantsDetails, setParticipantsDetails] = useState({});
+  const normalizeParticipantIds = (participants = []) => Array.from(new Set((participants || []).map(p => typeof p === 'string' ? p : p?._id || p).filter(Boolean)));
+  const { networkQuality, participantStates } = useSelector(state => state.call);
+
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [isSpeaker, setIsSpeaker] = useState(false);
 
   const { 
     initWebRTC, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined,
@@ -57,8 +66,9 @@ export function AudioCallWidget({ socket }) {
     const onOffer = async (data) => {
       if (data.callId === activeCall?.callId) {
         const currentParticipants = activeCall.participants || [];
-        if (!currentParticipants.includes(data.from)) {
-          dispatch(setActiveCall({ participants: [...currentParticipants, data.from] }));
+        const nextParticipants = normalizeParticipantIds([...currentParticipants, data.from]);
+        if (JSON.stringify(nextParticipants) !== JSON.stringify(normalizeParticipantIds(currentParticipants))) {
+          dispatch(setActiveCall({ participants: nextParticipants }));
         }
         await handleOffer(data.offer, data.from);
       }
@@ -75,8 +85,9 @@ export function AudioCallWidget({ socket }) {
     const onPeerJoined = (data) => {
       if (data.callId === activeCall?.callId) {
         const currentParticipants = activeCall.participants || [];
-        if (!currentParticipants.includes(data.joinedUserId)) {
-          dispatch(setActiveCall({ participants: [...currentParticipants, data.joinedUserId] }));
+        const nextParticipants = normalizeParticipantIds([...currentParticipants, data.joinedUserId]);
+        if (JSON.stringify(nextParticipants) !== JSON.stringify(normalizeParticipantIds(currentParticipants))) {
+          dispatch(setActiveCall({ participants: nextParticipants }));
         }
         handlePeerJoined(data.joinedUserId);
       }
@@ -146,6 +157,80 @@ export function AudioCallWidget({ socket }) {
   const primaryTarget = participantsDetails[primaryTargetId];
   const displayName = targetUserIds.length > 1 ? `${primaryTarget?.firstName} +${targetUserIds.length - 1}` : primaryTarget?.firstName;
 
+  const isExpanded = targetUserIds.length > 1;
+
+  if (isExpanded) {
+    return (
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-between bg-black/95 text-white animate-in fade-in duration-300 overflow-y-auto">
+        {/* Remote Audio Elements */}
+        {Object.entries(remoteMediaStreams).map(([peerId, stream]) => (
+          <audio key={peerId} autoPlay ref={(ref) => { if (ref && ref.srcObject !== stream) ref.srcObject = stream; }} />
+        ))}
+        
+        {/* Header Info */}
+        <div className="w-full flex justify-between p-6 shrink-0">
+          <div className="flex items-center gap-2">
+            <Signal className="w-5 h-5 text-green-500" />
+            <span className="text-sm font-medium">{networkQuality || 'Good'} Connection</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="text-primary font-mono text-xl">
+              {activeCall.status === 'Connected' ? formatDuration(duration) : activeCall.status}
+            </div>
+            <button onClick={() => setShowSettings(true)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+              <Settings className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+
+        {/* Main Call Info / Grid */}
+        <div className="flex-1 w-full max-w-6xl p-6 flex items-center justify-center">
+          <div className="grid gap-6 w-full grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {targetUserIds.map(id => {
+              const state = participantStates?.[id] || {};
+              const stream = remoteMediaStreams[id];
+              const details = participantsDetails[id];
+              return (
+                <ParticipantTile 
+                  key={id} userDetails={details} stream={stream}
+                  isMuted={state.muted} isSpeaking={state.speaking} connectionState={state.connectionState} label="Connecting..."
+                />
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Controls */}
+        <div className="flex items-center gap-6 p-8 shrink-0">
+          <button onClick={handleToggleMute} className={`p-5 rounded-full transition-all ${isMuted ? 'bg-white/90 text-black' : 'bg-white/10 text-white hover:bg-white/20'}`} title={isMuted ? "Unmute" : "Mute"}>
+            {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+          </button>
+          <button onClick={() => setShowAddModal(true)} className="p-5 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all" title="Add Participant">
+            <UserPlus className="w-6 h-6" />
+          </button>
+          <button onClick={handleHangUp} className="p-6 rounded-full bg-red-500 text-white hover:bg-red-600 transition-all shadow-[0_0_20px_rgba(239,68,68,0.4)]" title="End Call">
+            <Phone className="w-8 h-8 rotate-[135deg]" />
+          </button>
+          <button onClick={() => setIsSpeaker(!isSpeaker)} className={`p-5 rounded-full transition-all ${isSpeaker ? 'bg-white/90 text-black' : 'bg-white/10 text-white hover:bg-white/20'}`} title={isSpeaker ? "Speaker Off" : "Speaker On"}>
+            <Volume2 className="w-6 h-6" />
+          </button>
+        </div>
+
+        {showSettings && <VideoSettingsModal onClose={() => setShowSettings(false)} />}
+        {showAddModal && (
+          <AddParticipantModal 
+            activeCall={activeCall} 
+            onClose={() => setShowAddModal(false)} 
+            onInvite={(userId) => {
+              const newParticipants = normalizeParticipantIds([...(activeCall.participants || []), userId]);
+              dispatch(setActiveCall({ participants: newParticipants }));
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <motion.div
       drag
@@ -214,16 +299,27 @@ export function AudioCallWidget({ socket }) {
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content align="end" className="bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-1 w-48 z-[200]">
-              <DropdownMenu.Item className="flex items-center gap-2 px-3 py-2 text-sm text-slate-200 outline-none hover:bg-slate-700 rounded-lg cursor-pointer">
+              <DropdownMenu.Item onClick={() => setShowSettings(true)} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-200 outline-none hover:bg-slate-700 rounded-lg cursor-pointer">
                 <Settings className="w-4 h-4" /> Settings
               </DropdownMenu.Item>
-              <DropdownMenu.Item className="flex items-center gap-2 px-3 py-2 text-sm text-slate-200 outline-none hover:bg-slate-700 rounded-lg cursor-pointer">
+              <DropdownMenu.Item onClick={() => setShowAddModal(true)} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-200 outline-none hover:bg-slate-700 rounded-lg cursor-pointer">
                 <Users className="w-4 h-4" /> Add users
               </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
       </div>
+      {showSettings && <VideoSettingsModal onClose={() => setShowSettings(false)} />}
+      {showAddModal && (
+        <AddParticipantModal 
+          activeCall={activeCall} 
+          onClose={() => setShowAddModal(false)} 
+          onInvite={(userId) => {
+            const newParticipants = [...(activeCall.participants || []), userId];
+            dispatch(setActiveCall({ participants: newParticipants }));
+          }}
+        />
+      )}
     </motion.div>
   );
 }

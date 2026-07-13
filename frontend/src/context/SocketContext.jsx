@@ -37,9 +37,17 @@ export function SocketProvider({ children }) {
   useEffect(() => {
     if (!accessToken || !user) return;
 
-    const newSocket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000', {
-      auth: { token: `Bearer ${accessToken}` },
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const newSocket = io(socketUrl, {
+      auth: { token: accessToken.startsWith('Bearer ') ? accessToken : `Bearer ${accessToken}` },
       withCredentials: true,
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    });
+
+    newSocket.on('connect_error', (err) => {
+      console.error('Socket connect_error:', err?.message || err);
     });
 
     newSocket.on('connect', () => {

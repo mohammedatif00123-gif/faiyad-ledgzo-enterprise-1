@@ -427,6 +427,8 @@ export function useWebRTC(socket, callId, myUserId) {
   const timeoutRef = useRef(null);
   const isCleaningUp = useRef(false);
   const cleanupPromiseRef = useRef(null);
+  const knownParticipantsRef = useRef([]);
+  const negotiationInProgressRef = useRef(new Set());
 
   const [isReady, setIsReady] = useState(false);
   const [isCallActive, setIsCallActive] = useState(false);
@@ -615,6 +617,63 @@ export function useWebRTC(socket, callId, myUserId) {
     return isCleanupComplete();
   }, [isCleanupComplete]);
 
+  const replaceOutgoingVideoTrack = useCallback((track) => {
+    if (!track) return;
+
+    peerConnections.current.forEach(pc => {
+      const senders = pc.getSenders();
+      const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+      if (videoSender) {
+        videoSender.replaceTrack(track).catch(console.error);
+      } else if (localStream.current) {
+        pc.addTrack(track, localStream.current);
+      }
+    });
+  }, []);
+
+  const syncVideoTrackToPeers = useCallback(() => {
+    const activeTrack = screenStreamRef.current?.getVideoTracks()[0] || localStream.current?.getVideoTracks()[0];
+    if (activeTrack) {
+      replaceOutgoingVideoTrack(activeTrack);
+    }
+  }, [replaceOutgoingVideoTrack]);
+
+  const ensureTrackOnAllPeers = useCallback((track) => {
+    if (!track) return;
+
+    peerConnections.current.forEach(pc => {
+      const senders = pc.getSenders();
+      const hasVideoSender = senders.some(s => s.track && s.track.kind === 'video');
+      if (!hasVideoSender) {
+        if (localStream.current) {
+          pc.addTrack(track, localStream.current);
+        }
+      }
+    });
+  }, []);
+
+  const scheduleNegotiation = useCallback(async (targetUserId, pc) => {
+    if (!socket || !callId || pc.signalingState !== 'stable' || negotiationInProgressRef.current.has(targetUserId)) {
+      return;
+    }
+
+    negotiationInProgressRef.current.add(targetUserId);
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('webrtc_offer', {
+        targetUserId,
+        callId,
+        offer
+      });
+      console.log('[useWebRTC] Sent offer to:', targetUserId);
+    } catch (error) {
+      console.error('[useWebRTC] Failed to negotiate:', error);
+    } finally {
+      negotiationInProgressRef.current.delete(targetUserId);
+    }
+  }, [socket, callId]);
+
   // ✅ FIXED: Create peer connection with cleanup check
   const createPeerConnection = useCallback(async (targetUserId, isInitiator) => {
     console.log('[useWebRTC] Creating PeerConnection for:', targetUserId);
@@ -642,11 +701,21 @@ export function useWebRTC(socket, callId, myUserId) {
     peerConnections.current.set(targetUserId, pc);
 
     if (localStream.current) {
-      localStream.current.getTracks().forEach(track => {
+      localStream.current.getAudioTracks().forEach(track => {
         pc.addTrack(track, localStream.current);
         console.log('[useWebRTC] Added track for:', targetUserId, track.kind);
       });
+
+      const outgoingVideoTrack = screenStreamRef.current?.getVideoTracks()[0] || localStream.current.getVideoTracks()[0];
+      if (outgoingVideoTrack) {
+        pc.addTrack(outgoingVideoTrack, localStream.current);
+        console.log('[useWebRTC] Added outgoing video track for:', targetUserId, outgoingVideoTrack.kind);
+      }
     }
+
+    pc.onnegotiationneeded = () => {
+      void scheduleNegotiation(targetUserId, pc);
+    };
 
     pc.onicecandidate = (event) => {
       if (event.candidate && socket) {
@@ -677,39 +746,39 @@ export function useWebRTC(socket, callId, myUserId) {
 
     pc.ontrack = (event) => {
       console.log('[useWebRTC] Received track from:', targetUserId);
+      const incomingTracks = event.streams?.[0]?.getTracks?.() || [];
+
+      if (!incomingTracks.length) return;
+
       setRemoteMediaStreams(prev => {
-        const existingStream = prev[targetUserId];
-        if (existingStream) {
-          const newStream = new MediaStream();
-          existingStream.getTracks().forEach(t => newStream.addTrack(t));
-          event.streams[0].getTracks().forEach(t => {
-            if (!newStream.getTrackById(t.id)) {
-              newStream.addTrack(t);
-            }
-          });
-          return { ...prev, [targetUserId]: newStream };
-        }
-        return { ...prev, [targetUserId]: event.streams[0] };
+        const existingStream = prev[targetUserId] || new MediaStream();
+        const nextStream = new MediaStream();
+
+        existingStream.getTracks().forEach(track => {
+          const isSameTrack = incomingTracks.some(incoming => incoming.id === track.id);
+          if (!isSameTrack) {
+            nextStream.addTrack(track);
+          }
+        });
+
+        incomingTracks.forEach(track => {
+          const sameKindTrack = nextStream.getTracks().find(existing => existing.kind === track.kind);
+          if (sameKindTrack) {
+            nextStream.removeTrack(sameKindTrack);
+          }
+          nextStream.addTrack(track);
+        });
+
+        return { ...prev, [targetUserId]: nextStream };
       });
     };
 
     if (isInitiator) {
-      pc.createOffer()
-        .then(offer => {
-          return pc.setLocalDescription(offer).then(() => {
-            socket.emit('webrtc_offer', {
-              targetUserId,
-              callId,
-              offer
-            });
-            console.log('[useWebRTC] Sent offer to:', targetUserId);
-          });
-        })
-        .catch(console.error);
+      void scheduleNegotiation(targetUserId, pc);
     }
 
     return pc;
-  }, [socket, callId, dispatch, waitForCleanup]);
+  }, [socket, callId, dispatch, waitForCleanup, scheduleNegotiation]);
 
   // ✅ FIXED: END CALL - Waits for cleanup to complete
   const endCall = useCallback(async () => {
@@ -730,13 +799,41 @@ export function useWebRTC(socket, callId, myUserId) {
     console.log('[useWebRTC] End call complete, cleanup done');
   }, [socket, callId, cleanupCall]);
 
+  const getKnownParticipantIds = useCallback(() => {
+    return (activeCall?.participants || [])
+      .map(p => p?._id || p)
+      .filter(Boolean)
+      .filter(id => id !== myUserId);
+  }, [activeCall?.participants, myUserId]);
+
+  const ensurePeerConnections = useCallback(async (excludedIds = []) => {
+    if (!isReady || !localStream.current) return;
+
+    const participantIds = getKnownParticipantIds().filter(id => !excludedIds.includes(id) && !peerConnections.current.has(id));
+    for (const participantId of participantIds) {
+      await createPeerConnection(participantId, true);
+    }
+  }, [createPeerConnection, getKnownParticipantIds, isReady]);
+
   const handlePeerJoined = useCallback(async (targetUserId) => {
+    if (!targetUserId || targetUserId === myUserId) {
+      if (targetUserId === myUserId) {
+        await ensurePeerConnections();
+      }
+      return;
+    }
+
     console.log('[useWebRTC] Peer joined:', targetUserId);
     await localMediaReadyPromise.current;
     setIsCallActive(true);
     setCallStatus('ringing');
     await createPeerConnection(targetUserId, true);
-  }, [createPeerConnection]);
+    const activeTrack = screenStreamRef.current?.getVideoTracks()[0] || localStream.current?.getVideoTracks()[0];
+    if (activeTrack) {
+      ensureTrackOnAllPeers(activeTrack);
+    }
+    await ensurePeerConnections([targetUserId]);
+  }, [createPeerConnection, ensurePeerConnections, ensureTrackOnAllPeers, myUserId]);
 
   const handleOffer = useCallback(async (offer, fromUserId) => {
     console.log('[useWebRTC] Received offer from:', fromUserId);
@@ -802,13 +899,13 @@ export function useWebRTC(socket, callId, myUserId) {
 
   const handleIceCandidate = useCallback(async (candidate, fromUserId) => {
     const pc = peerConnections.current.get(fromUserId);
-    if (!pc) return;
     try {
-      if (pc.remoteDescription) {
+      if (pc && pc.remoteDescription) {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
       } else {
         if (!iceCandidateQueue.current[fromUserId]) iceCandidateQueue.current[fromUserId] = [];
         iceCandidateQueue.current[fromUserId].push(candidate);
+        if (!pc) console.warn('[useWebRTC] No PC yet for ICE candidate, queueing it for later:', fromUserId);
       }
     } catch (e) {
       console.error('[useWebRTC] Error adding ice candidate:', e);
@@ -837,22 +934,21 @@ export function useWebRTC(socket, callId, myUserId) {
           localStream.current.addTrack(videoTrack);
           setLocalMediaStream(new MediaStream(localStream.current.getTracks()));
 
-          peerConnections.current.forEach(pc => {
-            pc.addTrack(videoTrack, localStream.current);
-          });
+          syncVideoTrackToPeers();
         } catch (e) {
           console.error('[useWebRTC] Failed to get video:', e);
           return;
         }
       } else if (videoTrack) {
         videoTrack.enabled = isEnabled;
+        syncVideoTrackToPeers();
       }
 
       peerConnections.current.forEach((_, peerId) => {
         socket.emit('camera_toggle', { targetUserId: peerId, isEnabled });
       });
     }
-  }, [socket]);
+  }, [socket, syncVideoTrackToPeers]);
 
   const startScreenShare = useCallback(async () => {
     try {
@@ -864,11 +960,26 @@ export function useWebRTC(socket, callId, myUserId) {
         const senders = pc.getSenders();
         const videoSender = senders.find(s => s.track && s.track.kind === 'video');
         if (videoSender) {
-          videoSender.replaceTrack(screenTrack);
-        } else {
+          videoSender.replaceTrack(screenTrack).then(() => {
+            console.log('[useWebRTC] Screen track replaced, triggering renegotiation');
+          }).catch(err => {
+            console.error('[useWebRTC] Failed to replace track:', err);
+            if (localStream.current && !senders.some(s => s.track === screenTrack)) {
+              pc.addTrack(screenTrack, localStream.current);
+            }
+          });
+        } else if (localStream.current) {
           pc.addTrack(screenTrack, localStream.current);
         }
       });
+
+      // Trigger renegotiation for all peers after a brief delay
+      await new Promise(resolve => setTimeout(resolve, 200));
+      for (const [targetUserId, pc] of peerConnections.current.entries()) {
+        if (pc.signalingState === 'stable') {
+          void scheduleNegotiation(targetUserId, pc);
+        }
+      }
 
       peerConnections.current.forEach((_, peerId) => {
         socket.emit('screen_share_start', { targetUserId: peerId });
@@ -883,7 +994,7 @@ export function useWebRTC(socket, callId, myUserId) {
       console.error('[useWebRTC] Failed to start screen share:', e);
       return null;
     }
-  }, [socket]);
+  }, [socket, scheduleNegotiation]);
 
   const stopScreenShare = useCallback(() => {
     const videoTrack = localStream.current?.getVideoTracks()[0];
@@ -897,14 +1008,28 @@ export function useWebRTC(socket, callId, myUserId) {
       const senders = pc.getSenders();
       const videoSender = senders.find(s => s.track && s.track.kind === 'video');
       if (videoSender && videoTrack) {
-        videoSender.replaceTrack(videoTrack);
+        videoSender.replaceTrack(videoTrack).then(() => {
+          console.log('[useWebRTC] Camera track restored, triggering renegotiation');
+        }).catch(err => {
+          console.error('[useWebRTC] Failed to restore track:', err);
+        });
       }
     });
+
+    // Trigger renegotiation for all peers after a brief delay
+    (async () => {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      for (const [targetUserId, pc] of peerConnections.current.entries()) {
+        if (pc.signalingState === 'stable') {
+          void scheduleNegotiation(targetUserId, pc);
+        }
+      }
+    })();
 
     peerConnections.current.forEach((_, peerId) => {
       socket.emit('screen_share_stop', { targetUserId: peerId });
     });
-  }, [socket]);
+  }, [socket, scheduleNegotiation]);
 
   const forceCleanup = useCallback(async () => {
     console.log('[useWebRTC] FORCED CLEANUP INITIATED');
@@ -932,16 +1057,21 @@ export function useWebRTC(socket, callId, myUserId) {
 
   // Initiate calls if initiator
   useEffect(() => {
-    if (isReady && activeCall?.isInitiator && activeCall.participants) {
-      console.log('[useWebRTC] Initiating calls to participants');
-      activeCall.participants.forEach(async (pId) => {
-        const idStr = pId._id || pId;
-        if (idStr !== myUserId) {
-          await createPeerConnection(idStr, true);
-        }
-      });
+    if (isReady && activeCall?.participants) {
+      knownParticipantsRef.current = getKnownParticipantIds();
+      if (activeCall?.isInitiator) {
+        console.log('[useWebRTC] Initiating calls to participants');
+        activeCall.participants.forEach(async (pId) => {
+          const idStr = pId._id || pId;
+          if (idStr !== myUserId && !peerConnections.current.has(idStr)) {
+            await createPeerConnection(idStr, true);
+          }
+        });
+      } else {
+        void ensurePeerConnections();
+      }
     }
-  }, [isReady, activeCall?.isInitiator, activeCall?.participants, myUserId, createPeerConnection]);
+  }, [isReady, activeCall?.isInitiator, activeCall?.participants, myUserId, createPeerConnection, ensurePeerConnections, getKnownParticipantIds]);
 
   return {
     initWebRTC,

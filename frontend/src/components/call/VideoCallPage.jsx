@@ -34,6 +34,7 @@ export function VideoCallPage({ socket }) {
   const isGroupCall = conversation?.type === 'channel';
 
   const [participantsDetails, setParticipantsDetails] = useState({});
+  const normalizeParticipantIds = (participants = []) => Array.from(new Set((participants || []).map(p => typeof p === 'string' ? p : p?._id || p).filter(Boolean)));
 
   const { 
     initWebRTC, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined,
@@ -103,8 +104,9 @@ export function VideoCallPage({ socket }) {
     const onOffer = async (data) => {
       if (data.callId === activeCall?.callId) {
         const currentParticipants = activeCall.participants || [];
-        if (!currentParticipants.includes(data.from)) {
-          dispatch(setActiveCall({ participants: [...currentParticipants, data.from] }));
+        const nextParticipants = normalizeParticipantIds([...currentParticipants, data.from]);
+        if (JSON.stringify(nextParticipants) !== JSON.stringify(normalizeParticipantIds(currentParticipants))) {
+          dispatch(setActiveCall({ participants: nextParticipants }));
         }
         await handleOffer(data.offer, data.from);
       }
@@ -121,8 +123,9 @@ export function VideoCallPage({ socket }) {
     const onPeerJoined = (data) => {
       if (data.callId === activeCall?.callId) {
         const currentParticipants = activeCall.participants || [];
-        if (!currentParticipants.includes(data.joinedUserId)) {
-          dispatch(setActiveCall({ participants: [...currentParticipants, data.joinedUserId] }));
+        const nextParticipants = normalizeParticipantIds([...currentParticipants, data.joinedUserId]);
+        if (JSON.stringify(nextParticipants) !== JSON.stringify(normalizeParticipantIds(currentParticipants))) {
+          dispatch(setActiveCall({ participants: nextParticipants }));
         }
         handlePeerJoined(data.joinedUserId);
       }

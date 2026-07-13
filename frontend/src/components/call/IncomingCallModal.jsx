@@ -83,20 +83,42 @@ export function IncomingCallModal({ socket }) {
 
   const executeAccept = async (initialSettings = {}) => {
     try {
-      await api.post(`/calls/${callId}/accept`);
+      const { data } = await api.post(`/calls/${callId}/accept`);
+      const sessionParticipants = data?.callSession?.participants || [incomingCall.from];
+      const normalizedParticipants = sessionParticipants
+        .map(p => typeof p === 'string' ? p : p?._id || p)
+        .filter(Boolean);
+
       socket.emit('call_accept', { targetUserId: incomingCall.from, callId });
-      
+
       dispatch(setActiveCall({
         callId,
         conversationId: incomingCall.conversationId,
         status: 'Connecting',
-        participants: [incomingCall.from],
+        participants: normalizedParticipants,
         isInitiator: false,
         callType: incomingCall.callType,
         initialSettings
       }));
       dispatch(clearIncomingCall());
     } catch (err) {
+      const message = err?.response?.data?.message || '';
+      const isAlreadyJoined = err?.response?.status === 400 && /already|connected|accept/i.test(message);
+
+      if (isAlreadyJoined) {
+        dispatch(setActiveCall({
+          callId,
+          conversationId: incomingCall.conversationId,
+          status: 'Connecting',
+          participants: [incomingCall.from],
+          isInitiator: false,
+          callType: incomingCall.callType,
+          initialSettings
+        }));
+        dispatch(clearIncomingCall());
+        return;
+      }
+
       console.error('Failed to accept call', err);
       dispatch(clearIncomingCall());
     }

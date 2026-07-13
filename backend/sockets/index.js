@@ -4,13 +4,22 @@ const UserRepository = require('../repositories/UserRepository');
 const ChatService = require('../services/ChatService');
 const MessageService = require('../services/MessageService');
 const ReadReceipt = require('../models/ReadReceipt');
+const { extractAuthToken } = require('../utils/authToken');
 
 let ioInstance = null;
 
 const initSocket = (server) => {
+  const allowedOrigins = [process.env.FRONTEND_URL, 'http://localhost:5173', 'http://127.0.0.1:5173']
+    .filter(Boolean);
+
   const io = new Server(server, {
     cors: {
-      origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        return callback(null, false);
+      },
       methods: ['GET', 'POST'],
       credentials: true
     }
@@ -19,10 +28,17 @@ const initSocket = (server) => {
 
   io.use((socket, next) => {
     try {
-      const token = socket.handshake.auth.token || socket.handshake.headers['authorization'];
+      const token = extractAuthToken({
+        headers: socket.handshake.headers,
+        auth: socket.handshake.auth,
+        query: socket.handshake.query,
+        cookies: socket.request?.cookies || {},
+        cookieHeader: socket.handshake.headers.cookie,
+      });
+
       if (!token) return next(new Error('Authentication error'));
-      
-      const decoded = jwt.verify(token.replace('Bearer ', ''), process.env.JWT_SECRET);
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
       socket.user = decoded;
       next();
     } catch (error) {

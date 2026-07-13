@@ -97,25 +97,46 @@ class CallService {
   async acceptCall(callId, userId) {
     const callSession = await CallSession.findById(callId);
     if (!callSession) throw new AppError('Call not found', 404);
-    if (callSession.status !== 'Ringing' && callSession.status !== 'Connecting') {
+
+    const terminalStates = ['Rejected', 'Missed', 'Ended', 'Cancelled'];
+    if (terminalStates.includes(callSession.status)) {
       throw new AppError(`Cannot accept call in ${callSession.status} state`, 400);
     }
 
-    // Create participant record
-    const participant = new CallParticipant({
+    let participant = await CallParticipant.findOne({
       callSession: callSession._id,
       user: userId,
-      joinedAt: new Date(),
-      connectionState: 'connected'
+      leftAt: null
     });
-    await participant.save();
+
+    if (!participant) {
+      participant = new CallParticipant({
+        callSession: callSession._id,
+        user: userId,
+        joinedAt: new Date(),
+        connectionState: 'connected'
+      });
+      await participant.save();
+    } else {
+      participant.connectionState = 'connected';
+      participant.joinedAt = participant.joinedAt || new Date();
+      await participant.save();
+    }
+
+    // Ensure the joining participant is part of the session roster
+    const participantIds = callSession.participants.map(p => p.toString());
+    if (!participantIds.includes(userId.toString())) {
+      callSession.participants.push(userId);
+    }
 
     // Update Call Session
     if (!callSession.answeredAt) {
       callSession.status = 'Connected';
       callSession.answeredAt = new Date();
-      await callSession.save();
+    } else if (callSession.status === 'Ringing' || callSession.status === 'Connecting') {
+      callSession.status = 'Connected';
     }
+    await callSession.save();
 
     // Update Presence
     await PresenceService.setStatus(userId, 'In Call', getIO());

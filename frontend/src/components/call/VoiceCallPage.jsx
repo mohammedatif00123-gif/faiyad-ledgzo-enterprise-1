@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Mic, MicOff, Phone, Volume2, Settings, Signal, User, UserPlus } from 'lucide-react';
+import { Mic, MicOff, Phone, Volume2, Settings, Signal, User, UserPlus, Share2 } from 'lucide-react';
 import { useWebRTC } from '../../hooks/useWebRTC';
 import { endCall, setActiveCall } from '../../store/slices/callSlice';
 import api from '../../services/api';
@@ -8,7 +8,7 @@ import { getAvatarUrl } from '../../utils/avatar';
 import { AddParticipantModal } from './AddParticipantModal';
 
 // Component for rendering a single participant's tile
-const ParticipantTile = ({ userDetails, stream, isMuted, isSpeaking, label, connectionState }) => {
+export const ParticipantTile = ({ userDetails, stream, isMuted, isSpeaking, label, connectionState }) => {
   useEffect(() => {
     if (stream) {
       const audio = new Audio();
@@ -56,16 +56,18 @@ export function VoiceCallPage({ socket }) {
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeaker, setIsSpeaker] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   
   const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== user.id).map(p => p._id || p) || [];
   const conversation = conversations.find(c => c._id === activeCall?.conversationId);
   const isGroupCall = conversation?.type === 'channel';
 
   const [participantsDetails, setParticipantsDetails] = useState({});
+  const normalizeParticipantIds = (participants = []) => Array.from(new Set((participants || []).map(p => typeof p === 'string' ? p : p?._id || p).filter(Boolean)));
 
   const { 
     initWebRTC, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined,
-    toggleMute, cleanup, isReady, remoteMediaStreams 
+    toggleMute, cleanup, isReady, remoteMediaStreams, startScreenShare, stopScreenShare
   } = useWebRTC(socket, activeCall?.callId, user.id);
 
   // Fetch details for all remote participants
@@ -97,8 +99,9 @@ export function VoiceCallPage({ socket }) {
     const onOffer = async (data) => {
       if (data.callId === activeCall?.callId) {
         const currentParticipants = activeCall.participants || [];
-        if (!currentParticipants.includes(data.from)) {
-          dispatch(setActiveCall({ participants: [...currentParticipants, data.from] }));
+        const nextParticipants = normalizeParticipantIds([...currentParticipants, data.from]);
+        if (JSON.stringify(nextParticipants) !== JSON.stringify(normalizeParticipantIds(currentParticipants))) {
+          dispatch(setActiveCall({ participants: nextParticipants }));
         }
         await handleOffer(data.offer, data.from);
       }
@@ -120,8 +123,9 @@ export function VoiceCallPage({ socket }) {
       if (data.callId === activeCall?.callId) {
         // Add them to redux activeCall participants so UI updates
         const currentParticipants = activeCall.participants || [];
-        if (!currentParticipants.includes(data.joinedUserId)) {
-          dispatch(setActiveCall({ participants: [...currentParticipants, data.joinedUserId] }));
+        const nextParticipants = normalizeParticipantIds([...currentParticipants, data.joinedUserId]);
+        if (JSON.stringify(nextParticipants) !== JSON.stringify(normalizeParticipantIds(currentParticipants))) {
+          dispatch(setActiveCall({ participants: nextParticipants }));
         }
         handlePeerJoined(data.joinedUserId);
       }
@@ -160,6 +164,21 @@ export function VoiceCallPage({ socket }) {
     const newMuted = !isMuted;
     setIsMuted(newMuted);
     toggleMute(newMuted);
+  };
+
+  const handleToggleScreenShare = async () => {
+    if (isScreenSharing) {
+      stopScreenShare();
+      setIsScreenSharing(false);
+    } else {
+      const displayStream = await startScreenShare();
+      if (displayStream) {
+        setIsScreenSharing(true);
+        displayStream.getVideoTracks()[0].onended = () => {
+          setIsScreenSharing(false);
+        };
+      }
+    }
   };
 
   const formatDuration = (secs) => {
@@ -233,6 +252,14 @@ export function VoiceCallPage({ socket }) {
         </button>
         
         <button 
+          onClick={handleToggleScreenShare}
+          className={`p-5 rounded-full transition-all ${isScreenSharing ? 'bg-green-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+          title={isScreenSharing ? "Stop Screen Share" : "Share Screen"}
+        >
+          <Share2 className="w-6 h-6" />
+        </button>
+
+        <button 
           onClick={() => setShowAddModal(true)}
           className="p-5 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all"
           title="Add Participant"
@@ -262,8 +289,7 @@ export function VoiceCallPage({ socket }) {
           activeCall={activeCall} 
           onClose={() => setShowAddModal(false)} 
           onInvite={(userId) => {
-            // Update local state optimistic
-            const newParticipants = [...(activeCall.participants || []), userId];
+            const newParticipants = normalizeParticipantIds([...(activeCall.participants || []), userId]);
             dispatch(setActiveCall({ participants: newParticipants }));
           }}
         />
