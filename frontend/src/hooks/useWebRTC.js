@@ -397,7 +397,8 @@ import {
   setNetworkQuality,
   updateParticipantState,
   updateCallStatus,
-  endCall as endCallRedux
+  endCall as endCallRedux,
+  addParticipant
 } from '../store/slices/callSlice';
 
 const ICE_SERVERS = {
@@ -732,14 +733,16 @@ export function useWebRTC(socket, callId, myUserId) {
 
   const handlePeerJoined = useCallback(async (targetUserId) => {
     console.log('[useWebRTC] Peer joined:', targetUserId);
+    dispatch(addParticipant(targetUserId));
     await localMediaReadyPromise.current;
     setIsCallActive(true);
     setCallStatus('ringing');
     await createPeerConnection(targetUserId, true);
-  }, [createPeerConnection]);
+  }, [createPeerConnection, dispatch]);
 
   const handleOffer = useCallback(async (offer, fromUserId) => {
     console.log('[useWebRTC] Received offer from:', fromUserId);
+    dispatch(addParticipant(fromUserId));
     await localMediaReadyPromise.current;
     const pc = await createPeerConnection(fromUserId, false);
 
@@ -896,8 +899,11 @@ export function useWebRTC(socket, callId, myUserId) {
     peerConnections.current.forEach(pc => {
       const senders = pc.getSenders();
       const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-      if (videoSender && videoTrack) {
-        videoSender.replaceTrack(videoTrack);
+      if (videoSender) {
+        // Replace with camera track if it exists, otherwise replace with null (for voice calls)
+        videoSender.replaceTrack(videoTrack || null).catch(err => {
+          console.error('[useWebRTC] Failed to restore video track:', err);
+        });
       }
     });
 

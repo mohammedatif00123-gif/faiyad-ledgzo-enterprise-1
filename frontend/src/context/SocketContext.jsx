@@ -2,17 +2,17 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { io } from 'socket.io-client';
 import { toast } from 'sonner';
-import { 
-  addMessage, 
+import {
+  addMessage,
   setTyping,
   updateMessage
 } from '../store/slices/chatSlice';
-import { 
-  setIncomingCall, 
-  updateCallStatus, 
-  endCall, 
-  clearIncomingCall, 
-  updateParticipantState 
+import {
+  setIncomingCall,
+  updateCallStatus,
+  endCall,
+  clearIncomingCall,
+  updateParticipantState
 } from '../store/slices/callSlice';
 import { audioUtils } from '../utils/audioUtils';
 
@@ -29,15 +29,15 @@ export function SocketProvider({ children }) {
   const [socket, setSocket] = useState(null);
 
   const activeConversationRef = React.useRef(activeConversation);
-  
+
   useEffect(() => {
     activeConversationRef.current = activeConversation;
   }, [activeConversation]);
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!accessToken || !user) return;
 
-    const newSocket = io(import.meta.env.VITE_API_URL || 'http://localhost:5000', {
+    const newSocket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000', {
       auth: { token: `Bearer ${accessToken}` },
       withCredentials: true,
     });
@@ -48,22 +48,22 @@ export function SocketProvider({ children }) {
 
     newSocket.on('newMessage', (message) => {
       dispatch(addMessage({ conversationId: message.conversation, message }));
-      
+
       if (message.sender._id !== user.id) {
-        newSocket.emit('messageDelivered', { 
-          conversationId: message.conversation, 
-          messageId: message._id 
+        newSocket.emit('messageDelivered', {
+          conversationId: message.conversation,
+          messageId: message._id
         });
       }
 
       if (message.sender._id !== user.id && message.conversation !== activeConversationRef.current) {
-        
+
         // Mute check
         const conv = conversations.find(c => c._id === message.conversation);
         if (!conv?.isMuted) {
           audioUtils.playNotificationSound();
         }
-        
+
         toast(message.sender.firstName + ' sent a message', {
           description: message.content.length > 30 ? message.content.substring(0, 30) + '...' : message.content,
         });
@@ -91,9 +91,9 @@ export function SocketProvider({ children }) {
 
     newSocket.on('conversation_read', ({ conversationId, readBy }) => {
       // Dispatch an action or reuse updateMessage to mark all as read
-      dispatch({ 
-        type: 'chat/markConversationAsReadState', 
-        payload: { conversationId, readBy } 
+      dispatch({
+        type: 'chat/markConversationAsReadState',
+        payload: { conversationId, readBy }
       });
     });
 
@@ -141,7 +141,7 @@ export function SocketProvider({ children }) {
       newSocket.disconnect();
       setSocket(null);
     };
-  }, [accessToken, dispatch, user.id]);
+  }, [accessToken, dispatch, user]);
 
   return (
     <SocketContext.Provider value={{ socket }}>

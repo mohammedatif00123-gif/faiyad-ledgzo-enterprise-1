@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Mic, MicOff, Phone, Volume2, Settings, Signal, User, UserPlus } from 'lucide-react';
 import { useWebRTC } from '../../hooks/useWebRTC';
-import { endCall, setActiveCall } from '../../store/slices/callSlice';
+import { endCall, setActiveCall, addParticipant } from '../../store/slices/callSlice';
 import api from '../../services/api';
 import { getAvatarUrl } from '../../utils/avatar';
 import { AddParticipantModal } from './AddParticipantModal';
+import { CallSettingsMenu } from './CallSettingsMenu';
 
 // Component for rendering a single participant's tile
 const ParticipantTile = ({ userDetails, stream, isMuted, isSpeaking, label, connectionState }) => {
@@ -56,6 +57,7 @@ export function VoiceCallPage({ socket }) {
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeaker, setIsSpeaker] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   
   const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== user.id).map(p => p._id || p) || [];
   const conversation = conversations.find(c => c._id === activeCall?.conversationId);
@@ -96,10 +98,7 @@ export function VoiceCallPage({ socket }) {
 
     const onOffer = async (data) => {
       if (data.callId === activeCall?.callId) {
-        const currentParticipants = activeCall.participants || [];
-        if (!currentParticipants.includes(data.from)) {
-          dispatch(setActiveCall({ participants: [...currentParticipants, data.from] }));
-        }
+        dispatch(addParticipant(data.from));
         await handleOffer(data.offer, data.from);
       }
     };
@@ -119,10 +118,7 @@ export function VoiceCallPage({ socket }) {
     const onPeerJoined = (data) => {
       if (data.callId === activeCall?.callId) {
         // Add them to redux activeCall participants so UI updates
-        const currentParticipants = activeCall.participants || [];
-        if (!currentParticipants.includes(data.joinedUserId)) {
-          dispatch(setActiveCall({ participants: [...currentParticipants, data.joinedUserId] }));
-        }
+        dispatch(addParticipant(data.joinedUserId));
         handlePeerJoined(data.joinedUserId);
       }
     };
@@ -194,7 +190,10 @@ export function VoiceCallPage({ socket }) {
           <div className="text-primary font-mono text-xl">
             {activeCall.status === 'Connected' ? formatDuration(duration) : activeCall.status}
           </div>
-          <button className="p-2 hover:bg-white/10 rounded-full transition-colors">
+          <button 
+            onClick={() => setShowSettingsMenu(true)} 
+            className="p-2 hover:bg-white/10 rounded-full transition-colors"
+          >
             <Settings className="w-6 h-6" />
           </button>
         </div>
@@ -262,10 +261,23 @@ export function VoiceCallPage({ socket }) {
           activeCall={activeCall} 
           onClose={() => setShowAddModal(false)} 
           onInvite={(userId) => {
-            // Update local state optimistic
-            const newParticipants = [...(activeCall.participants || []), userId];
-            dispatch(setActiveCall({ participants: newParticipants }));
+            dispatch(addParticipant(userId));
           }}
+        />
+      )}
+
+      {showSettingsMenu && (
+        <CallSettingsMenu
+          onClose={() => setShowSettingsMenu(false)}
+          isMuted={isMuted}
+          isVideoEnabled={false}
+          isScreenSharing={false}
+          isSpeaker={isSpeaker}
+          onToggleMute={handleToggleMute}
+          onToggleVideo={() => {}} // Upgrade to video call logic if needed
+          onToggleScreenShare={() => {}} // Same
+          onToggleSpeaker={() => setIsSpeaker(!isSpeaker)}
+          onFlipCamera={() => {}} // No camera yet
         />
       )}
     </div>

@@ -9,14 +9,25 @@ export function AddParticipantModal({ onClose, activeCall, onInvite }) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    api.get('/chat/directory')
-      .then(res => {
-        // Filter out existing participants
-        const existingIds = activeCall.participants.map(p => p._id || p);
-        const available = res.data.data.filter(u => !existingIds.includes(u._id) && u.isOnline && u.status !== 'In Call');
-        setDirectory(available);
-      })
-      .catch(console.error);
+    if (activeCall?.conversationId) {
+      api.get(`/chat/conversations/${activeCall.conversationId}/members`)
+        .then(res => {
+          const existingIds = activeCall.participants.map(p => p._id || p);
+          // Group members are nested under .user
+          const members = res.data.data.map(m => m.user).filter(Boolean);
+          const available = members.filter(u => !existingIds.includes(u._id) && u.isOnline && u.status !== 'In Call');
+          setDirectory(available);
+        })
+        .catch(console.error);
+    } else {
+      api.get('/chat/directory')
+        .then(res => {
+          const existingIds = activeCall.participants.map(p => p._id || p);
+          const available = res.data.data.filter(u => !existingIds.includes(u._id) && u.isOnline && u.status !== 'In Call');
+          setDirectory(available);
+        })
+        .catch(console.error);
+    }
   }, [activeCall]);
 
   const filtered = directory.filter(u => 

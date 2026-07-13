@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { X, Search, Phone, Video } from 'lucide-react';
+import { useSelector } from 'react-redux';
 import { createPortal } from 'react-dom';
 import api from '../../services/api';
 import { getAvatarUrl } from '../../utils/avatar';
 
 export function GroupCallInitiateModal({ conversationId, callType, onClose, onStartCall }) {
+  const currentUser = useSelector(state => state.auth.user);
   const [members, setMembers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
@@ -13,11 +15,13 @@ export function GroupCallInitiateModal({ conversationId, callType, onClose, onSt
   useEffect(() => {
     api.get(`/chat/conversations/${conversationId}/members`)
       .then(res => {
-        setMembers(res.data.data || []);
+        // Filter out the current user from the very beginning
+        const otherMembers = (res.data.data || []).filter(m => m.user?._id !== currentUser?._id);
+        setMembers(otherMembers);
       })
       .catch(console.error)
       .finally(() => setIsLoading(false));
-  }, [conversationId]);
+  }, [conversationId, currentUser?._id]);
 
   const toggleSelect = (id) => {
     if (selectedIds.includes(id)) {
@@ -86,7 +90,14 @@ export function GroupCallInitiateModal({ conversationId, callType, onClose, onSt
                 const isSelected = selectedIds.includes(user._id);
 
                 return (
-                  <label key={user._id} className="flex items-center p-2 hover:bg-muted/30 rounded-md cursor-pointer transition-colors group">
+                  <label 
+                    key={user._id} 
+                    className="flex items-center p-2 hover:bg-muted/30 rounded-md cursor-pointer transition-colors group"
+                    onClick={(e) => {
+                      e.preventDefault(); // prevent default label behavior
+                      toggleSelect(user._id);
+                    }}
+                  >
                     <div className="flex-1 flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-primary/10 overflow-hidden shrink-0 flex items-center justify-center border">
                         {user.avatar ? (
