@@ -70,16 +70,16 @@ export function ParticipantGrid({ participants, localStream, remoteStreams, part
   
   // Calculate grid layout based on number of participants
   const count = participants.length;
-  let gridClass = 'grid-cols-1'; // Default (1 participant)
+  let gridClass = 'grid-cols-1'; // Default
 
   if (count === 2) gridClass = 'grid-cols-1 sm:grid-cols-2';
   else if (count === 3 || count === 4) gridClass = 'grid-cols-2';
-  else if (count >= 5 && count <= 9) gridClass = 'grid-cols-2 sm:grid-cols-3';
-  else if (count > 9) gridClass = 'grid-cols-3 sm:grid-cols-4';
+  else if (count >= 5 && count <= 6) gridClass = 'grid-cols-2 sm:grid-cols-3';
+  else if (count >= 7) gridClass = 'grid-cols-3 sm:grid-cols-4';
 
   return (
-    <div className="flex-1 w-full p-4 flex items-center justify-center min-h-0 overflow-y-auto custom-scrollbar">
-      <div className={`w-full h-full max-w-[1400px] grid gap-4 ${gridClass} ${count > 6 ? 'auto-rows-[minmax(250px,1fr)]' : 'auto-rows-fr'}`}>
+    <div className="flex-1 w-full p-4 flex items-center justify-center min-h-0">
+      <div className={`w-full h-full max-w-[1400px] grid gap-4 ${gridClass} auto-rows-fr`}>
         {participants.map(id => {
           const isLocal = id === localUserId;
           const stream = isLocal ? localStream : remoteStreams[id];

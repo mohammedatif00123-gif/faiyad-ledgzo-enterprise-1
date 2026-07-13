@@ -16,15 +16,9 @@ export function AddGroupMemberModal({ conversationId, currentMembers, onClose, o
   useEffect(() => {
     api.get('/chat/directory').then(res => {
       const directory = res.data.data || [];
-      // Filter out users already in the group robustly
-      const currentMemberIds = currentMembers
-        .map(m => m.user?._id?.toString())
-        .filter(Boolean);
-        
-      const available = directory.filter(e => 
-        e && e._id && !currentMemberIds.includes(e._id.toString())
-      );
-      
+      // Filter out users already in the group
+      const currentMemberIds = currentMembers.map(m => m.user._id);
+      const available = directory.filter(e => !currentMemberIds.includes(e._id));
       setEmployees(available);
     }).catch(console.error);
   }, [currentMembers]);

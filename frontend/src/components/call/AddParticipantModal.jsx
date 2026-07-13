@@ -1,51 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { X, Search, PhoneForwarded } from 'lucide-react';
-import { useSelector } from 'react-redux';
 import api from '../../services/api';
 import { getAvatarUrl } from '../../utils/avatar';
 
 export function AddParticipantModal({ onClose, activeCall, onInvite }) {
-  const { user } = useSelector(state => state.auth);
   const [directory, setDirectory] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Check if it's a group conversation
-    const isGroupCall = activeCall?.conversation?.type === 'channel' || activeCall?.isGroup;
-    
-    if (activeCall?.conversationId && isGroupCall) {
-      api.get(`/chat/conversations/${activeCall.conversationId}/members`)
-        .then(res => {
-          const existingIds = (activeCall?.participants || []).map(p => p._id || p);
-          // Group members are nested under .user
-          const members = (res.data.data || []).map(m => m.user).filter(Boolean);
-          const available = members.filter(u => 
-            !existingIds.includes(u._id) && 
-            u._id !== user.id && 
-            u.status !== 'In Call'
-          );
-          setDirectory(available);
-        })
-        .catch(console.error);
-    } else {
-      api.get('/chat/directory')
-        .then(res => {
-          const existingIds = (activeCall?.participants || []).map(p => p._id || p);
-          const available = (res.data.data || []).filter(u => 
-            !existingIds.includes(u._id) && 
-            u._id !== user.id && 
-            u.status !== 'In Call'
-          );
-          setDirectory(available);
-        })
-        .catch(console.error);
-    }
+    api.get('/chat/directory')
+      .then(res => {
+        // Filter out existing participants
+        const existingIds = activeCall.participants.map(p => p._id || p);
+        const available = res.data.data.filter(u => !existingIds.includes(u._id) && u.isOnline && u.status !== 'In Call');
+        setDirectory(available);
+      })
+      .catch(console.error);
   }, [activeCall]);
 
   const filtered = directory.filter(u => 
-    ((u.firstName || '') + ' ' + (u.lastName || '')).toLowerCase().includes(search.toLowerCase()) ||
-    (u.role || '').toLowerCase().includes(search.toLowerCase())
+    (u.firstName + ' ' + u.lastName).toLowerCase().includes(search.toLowerCase()) ||
+    u.role.toLowerCase().includes(search.toLowerCase())
   );
 
   const handleInvite = async (userId) => {
@@ -75,7 +51,7 @@ export function AddParticipantModal({ onClose, activeCall, onInvite }) {
           <Search className="w-4 h-4 absolute left-7 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input 
             type="text" 
-            placeholder="Search users..." 
+            placeholder="Search online users..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-muted border-none rounded-md py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
@@ -85,7 +61,7 @@ export function AddParticipantModal({ onClose, activeCall, onInvite }) {
         <div className="flex-1 max-h-64 overflow-y-auto p-2">
           {filtered.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground text-sm">
-              No available users found
+              No available online users found
             </div>
           ) : (
             filtered.map(u => (

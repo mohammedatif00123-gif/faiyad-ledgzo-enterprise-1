@@ -2,44 +2,33 @@ import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Mic, MicOff, Phone, Volume2, Settings, Signal, User, UserPlus } from 'lucide-react';
 import { useWebRTC } from '../../hooks/useWebRTC';
-import { endCall, setActiveCall, addParticipant } from '../../store/slices/callSlice';
+import { endCall, setActiveCall } from '../../store/slices/callSlice';
 import api from '../../services/api';
 import { getAvatarUrl } from '../../utils/avatar';
 import { AddParticipantModal } from './AddParticipantModal';
-import { CallSettingsMenu } from './CallSettingsMenu';
 
 // Component for rendering a single participant's tile
 const ParticipantTile = ({ userDetails, stream, isMuted, isSpeaking, label, connectionState }) => {
-  const videoRef = useRef(null);
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    if (stream) {
+      const audio = new Audio();
+      audio.srcObject = stream;
+      audio.autoplay = true;
+      audio.play().catch(e => console.log('Audio play failed', e));
     }
   }, [stream]);
-  
-  const hasVideo = stream?.getVideoTracks().some(t => t.enabled);
 
   return (
-    <div className="flex flex-col items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10 relative w-full h-full">
-      <div className="w-full h-48 sm:h-64 rounded-2xl bg-black/50 flex items-center justify-center overflow-hidden border-4 border-primary/30 relative">
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          className={`w-full h-full object-cover transition-opacity duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0 absolute'}`}
-        />
-        {!hasVideo && (
-          <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden flex items-center justify-center">
-            {userDetails?.avatar ? (
-              <img src={getAvatarUrl(userDetails.avatar)} alt="Avatar" className="w-full h-full object-cover" />
-            ) : (
-              <User className="w-12 h-12 text-white/50" />
-            )}
-          </div>
+    <div className="flex flex-col items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10 relative">
+      <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border-4 border-primary/30 relative">
+        {userDetails?.avatar ? (
+          <img src={getAvatarUrl(userDetails.avatar)} alt="Avatar" className="w-full h-full object-cover" />
+        ) : (
+          <User className="w-12 h-12 text-white/50" />
         )}
         {/* Speaking Indicator */}
         {isSpeaking && (
-          <div className="absolute inset-0 border-4 border-green-500 rounded-2xl animate-pulse pointer-events-none" />
+          <div className="absolute inset-0 border-4 border-green-500 rounded-full animate-pulse" />
         )}
       </div>
       <div className="text-center">
@@ -67,7 +56,6 @@ export function VoiceCallPage({ socket }) {
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeaker, setIsSpeaker] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   
   const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== user.id).map(p => p._id || p) || [];
   const conversation = conversations.find(c => c._id === activeCall?.conversationId);
@@ -108,7 +96,10 @@ export function VoiceCallPage({ socket }) {
 
     const onOffer = async (data) => {
       if (data.callId === activeCall?.callId) {
-        dispatch(addParticipant(data.from));
+        const currentParticipants = activeCall.participants || [];
+        if (!currentParticipants.includes(data.from)) {
+          dispatch(setActiveCall({ participants: [...currentParticipants, data.from] }));
+        }
         await handleOffer(data.offer, data.from);
       }
     };
@@ -128,7 +119,10 @@ export function VoiceCallPage({ socket }) {
     const onPeerJoined = (data) => {
       if (data.callId === activeCall?.callId) {
         // Add them to redux activeCall participants so UI updates
-        dispatch(addParticipant(data.joinedUserId));
+        const currentParticipants = activeCall.participants || [];
+        if (!currentParticipants.includes(data.joinedUserId)) {
+          dispatch(setActiveCall({ participants: [...currentParticipants, data.joinedUserId] }));
+        }
         handlePeerJoined(data.joinedUserId);
       }
     };
@@ -200,10 +194,7 @@ export function VoiceCallPage({ socket }) {
           <div className="text-primary font-mono text-xl">
             {activeCall.status === 'Connected' ? formatDuration(duration) : activeCall.status}
           </div>
-          <button 
-            onClick={() => setShowSettingsMenu(true)} 
-            className="p-2 hover:bg-white/10 rounded-full transition-colors"
-          >
+          <button className="p-2 hover:bg-white/10 rounded-full transition-colors">
             <Settings className="w-6 h-6" />
           </button>
         </div>
@@ -271,23 +262,10 @@ export function VoiceCallPage({ socket }) {
           activeCall={activeCall} 
           onClose={() => setShowAddModal(false)} 
           onInvite={(userId) => {
-            dispatch(addParticipant(userId));
+            // Update local state optimistic
+            const newParticipants = [...(activeCall.participants || []), userId];
+            dispatch(setActiveCall({ participants: newParticipants }));
           }}
-        />
-      )}
-
-      {showSettingsMenu && (
-        <CallSettingsMenu
-          onClose={() => setShowSettingsMenu(false)}
-          isMuted={isMuted}
-          isVideoEnabled={false}
-          isScreenSharing={false}
-          isSpeaker={isSpeaker}
-          onToggleMute={handleToggleMute}
-          onToggleVideo={() => {}} // Upgrade to video call logic if needed
-          onToggleScreenShare={() => {}} // Same
-          onToggleSpeaker={() => setIsSpeaker(!isSpeaker)}
-          onFlipCamera={() => {}} // No camera yet
         />
       )}
     </div>

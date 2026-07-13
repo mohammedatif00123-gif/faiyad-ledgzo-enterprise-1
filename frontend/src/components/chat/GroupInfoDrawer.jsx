@@ -44,7 +44,7 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
   const handleRemoveMember = async (userId) => {
     try {
       await dispatch(removeGroupMember({ conversationId: conversation._id, userId })).unwrap();
-      setMembers(prev => prev.filter(m => m.user?._id?.toString() !== userId?.toString()));
+      setMembers(prev => prev.filter(m => m.user._id !== userId));
     } catch (err) {
       console.error(err);
       alert(err);

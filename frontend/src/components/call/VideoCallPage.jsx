@@ -2,12 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Signal, Minimize } from 'lucide-react';
 import { useWebRTC } from '../../hooks/useWebRTC';
-import { endCall, setActiveCall, updateParticipantState, addParticipant } from '../../store/slices/callSlice';
+import { endCall, setActiveCall, updateParticipantState } from '../../store/slices/callSlice';
 import api from '../../services/api';
 
 import { CallToolbar } from './CallToolbar';
 import { ParticipantsDrawer } from './ParticipantsDrawer';
-import { CallSettingsMenu } from './CallSettingsMenu';
+import { VideoSettingsModal } from './VideoSettingsModal';
 import { ParticipantGrid } from './ParticipantGrid';
 import { ScreenShareView } from './ScreenShareView';
 
@@ -102,7 +102,10 @@ export function VideoCallPage({ socket }) {
 
     const onOffer = async (data) => {
       if (data.callId === activeCall?.callId) {
-        dispatch(addParticipant(data.from));
+        const currentParticipants = activeCall.participants || [];
+        if (!currentParticipants.includes(data.from)) {
+          dispatch(setActiveCall({ participants: [...currentParticipants, data.from] }));
+        }
         await handleOffer(data.offer, data.from);
       }
     };
@@ -117,7 +120,10 @@ export function VideoCallPage({ socket }) {
 
     const onPeerJoined = (data) => {
       if (data.callId === activeCall?.callId) {
-        dispatch(addParticipant(data.joinedUserId));
+        const currentParticipants = activeCall.participants || [];
+        if (!currentParticipants.includes(data.joinedUserId)) {
+          dispatch(setActiveCall({ participants: [...currentParticipants, data.joinedUserId] }));
+        }
         handlePeerJoined(data.joinedUserId);
       }
     };
@@ -346,18 +352,7 @@ export function VideoCallPage({ socket }) {
 
       {/* Modals */}
       {showSettings && (
-        <CallSettingsMenu 
-          onClose={() => setShowSettings(false)}
-          isMuted={isMuted}
-          isVideoEnabled={isVideoEnabled}
-          isScreenSharing={isScreenSharing}
-          isSpeaker={false}
-          onToggleMute={handleToggleMute}
-          onToggleVideo={handleToggleVideo}
-          onToggleScreenShare={handleToggleScreenShare}
-          onToggleSpeaker={() => {}} // No speaker toggle in VideoCallPage yet
-          onFlipCamera={() => {}} // No flip camera yet
-        />
+        <VideoSettingsModal onClose={() => setShowSettings(false)} />
       )}
     </div>
   );

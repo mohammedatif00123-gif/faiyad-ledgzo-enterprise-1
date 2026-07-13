@@ -27,11 +27,6 @@ const callSlice = createSlice({
       state.activeCall = { ...state.activeCall, ...action.payload };
       state.incomingCall = null;
     },
-    addParticipant: (state, action) => {
-      if (state.activeCall && !state.activeCall.participants.includes(action.payload)) {
-        state.activeCall.participants.push(action.payload);
-      }
-    },
     updateCallStatus: (state, action) => {
       if (state.activeCall) {
         // action.payload can be a string (status) or an object { status, callId }
@@ -89,8 +84,7 @@ export const {
   setNetworkQuality,
   setDevicePreferences,
   updateParticipantState,
-  setCallHistory,
-  addParticipant
+  setCallHistory
 } = callSlice.actions;
 
 export default callSlice.reducer;
