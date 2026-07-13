@@ -6,6 +6,8 @@ import { useWebRTC } from '../../hooks/useWebRTC';
 import { endCall, setActiveCall, updateParticipantState } from '../../store/slices/callSlice';
 import api from '../../services/api';
 import { getAvatarUrl } from '../../utils/avatar';
+import { CallSettingsMenu } from './CallSettingsMenu';
+import { AddParticipantModal } from './AddParticipantModal';
 
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 
@@ -16,6 +18,9 @@ export function AudioCallWidget({ socket }) {
 
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showAddUsers, setShowAddUsers] = useState(false);
+  const [isSpeaker, setIsSpeaker] = useState(false);
 
   const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== user.id).map(p => p._id || p) || [];
   const [participantsDetails, setParticipantsDetails] = useState({});
@@ -214,16 +219,48 @@ export function AudioCallWidget({ socket }) {
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content align="end" className="bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-1 w-48 z-[200]">
-              <DropdownMenu.Item className="flex items-center gap-2 px-3 py-2 text-sm text-slate-200 outline-none hover:bg-slate-700 rounded-lg cursor-pointer">
+              <DropdownMenu.Item 
+                onSelect={() => setShowSettings(true)}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-slate-200 outline-none hover:bg-slate-700 rounded-lg cursor-pointer"
+              >
                 <Settings className="w-4 h-4" /> Settings
               </DropdownMenu.Item>
-              <DropdownMenu.Item className="flex items-center gap-2 px-3 py-2 text-sm text-slate-200 outline-none hover:bg-slate-700 rounded-lg cursor-pointer">
+              <DropdownMenu.Item 
+                onSelect={() => setShowAddUsers(true)}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-slate-200 outline-none hover:bg-slate-700 rounded-lg cursor-pointer"
+              >
                 <Users className="w-4 h-4" /> Add users
               </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
       </div>
+
+      {showSettings && (
+        <CallSettingsMenu
+          onClose={() => setShowSettings(false)}
+          isMuted={isMuted}
+          isVideoEnabled={false}
+          isScreenSharing={false}
+          isSpeaker={isSpeaker}
+          onToggleMute={handleToggleMute}
+          onToggleVideo={() => {}}
+          onToggleScreenShare={() => {}}
+          onToggleSpeaker={() => setIsSpeaker(!isSpeaker)}
+          onFlipCamera={() => {}}
+        />
+      )}
+
+      {showAddUsers && (
+        <AddParticipantModal 
+          activeCall={activeCall} 
+          onClose={() => setShowAddUsers(false)} 
+          onInvite={(userId) => {
+            const newParticipants = [...(activeCall.participants || []), userId];
+            dispatch(setActiveCall({ participants: newParticipants }));
+          }}
+        />
+      )}
     </motion.div>
   );
 }

@@ -10,26 +10,36 @@ import { CallSettingsMenu } from './CallSettingsMenu';
 
 // Component for rendering a single participant's tile
 const ParticipantTile = ({ userDetails, stream, isMuted, isSpeaking, label, connectionState }) => {
+  const videoRef = useRef(null);
   useEffect(() => {
-    if (stream) {
-      const audio = new Audio();
-      audio.srcObject = stream;
-      audio.autoplay = true;
-      audio.play().catch(e => console.log('Audio play failed', e));
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
     }
   }, [stream]);
+  
+  const hasVideo = stream?.getVideoTracks().some(t => t.enabled);
 
   return (
-    <div className="flex flex-col items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10 relative">
-      <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border-4 border-primary/30 relative">
-        {userDetails?.avatar ? (
-          <img src={getAvatarUrl(userDetails.avatar)} alt="Avatar" className="w-full h-full object-cover" />
-        ) : (
-          <User className="w-12 h-12 text-white/50" />
+    <div className="flex flex-col items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10 relative w-full h-full">
+      <div className="w-full h-48 sm:h-64 rounded-2xl bg-black/50 flex items-center justify-center overflow-hidden border-4 border-primary/30 relative">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          className={`w-full h-full object-cover transition-opacity duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0 absolute'}`}
+        />
+        {!hasVideo && (
+          <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden flex items-center justify-center">
+            {userDetails?.avatar ? (
+              <img src={getAvatarUrl(userDetails.avatar)} alt="Avatar" className="w-full h-full object-cover" />
+            ) : (
+              <User className="w-12 h-12 text-white/50" />
+            )}
+          </div>
         )}
         {/* Speaking Indicator */}
         {isSpeaking && (
-          <div className="absolute inset-0 border-4 border-green-500 rounded-full animate-pulse" />
+          <div className="absolute inset-0 border-4 border-green-500 rounded-2xl animate-pulse pointer-events-none" />
         )}
       </div>
       <div className="text-center">

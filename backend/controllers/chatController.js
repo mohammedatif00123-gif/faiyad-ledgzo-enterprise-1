@@ -78,7 +78,7 @@ exports.getGroupMembers = async (req, res, next) => {
     }
     
     const members = await ConversationMember.find({ conversation: conversationId })
-      .populate('user', 'firstName lastName avatar email department companyEmail')
+      .populate('user', 'firstName lastName avatar email department companyEmail isOnline status role')
       .lean();
       
     sendResponse(res, 200, 'Group members fetched successfully', members);
