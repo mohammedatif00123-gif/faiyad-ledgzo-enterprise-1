@@ -41,7 +41,7 @@ class MessageRepository extends BaseRepository {
     return await this.model.findByIdAndUpdate(
       messageId,
       { $addToSet: { deletedForMe: userId } },
-      { new: true }
+      { returnDocument: 'after' }
     );
   }
 
@@ -55,14 +55,14 @@ class MessageRepository extends BaseRepository {
     const updated = await this.model.findOneAndUpdate(
       { _id: messageId, 'reactions.emoji': emoji },
       { $addToSet: { 'reactions.$.users': userId } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!updated) {
       // If emoji array didn't exist
       return await this.model.findByIdAndUpdate(
         messageId,
         { $push: { reactions: { emoji, users: [userId] } } },
-        { new: true }
+        { returnDocument: 'after' }
       );
     }
     return updated;
@@ -72,7 +72,7 @@ class MessageRepository extends BaseRepository {
     return await this.model.findOneAndUpdate(
       { _id: messageId, 'reactions.emoji': emoji },
       { $pull: { 'reactions.$.users': userId } },
-      { new: true }
+      { returnDocument: 'after' }
     );
   }
 }

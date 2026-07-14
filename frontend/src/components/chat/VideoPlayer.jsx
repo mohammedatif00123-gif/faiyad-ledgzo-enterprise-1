@@ -1,11 +1,14 @@
 import React, { useRef, useState } from 'react';
-import { Play, Pause, Volume2, VolumeX, Maximize } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, Download } from 'lucide-react';
+import { useDecryptedMedia } from '../../hooks/useDecryptedMedia';
 
-export default function VideoPlayer({ src, poster }) {
+export default function VideoPlayer({ attachment, message }) {
+  const { fileUrl, isLoading, error } = useDecryptedMedia(attachment, message);
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [showControls, setShowControls] = useState(false);
 
   const togglePlay = () => {
     if (isPlaying) {
@@ -33,12 +36,27 @@ export default function VideoPlayer({ src, poster }) {
     }
   };
 
+  if (error) {
+    return (
+      <div className="w-full h-48 bg-red-900/20 text-red-500 rounded-lg flex items-center justify-center border border-red-500/50">
+        <span className="text-xs">🔒 Decryption Failed</span>
+      </div>
+    );
+  }
+
+  if (isLoading || !fileUrl) {
+    return <div className="w-[300px] h-[200px] bg-slate-700 animate-pulse rounded-lg"></div>;
+  }
+
   return (
-    <div className="relative group w-full max-w-[400px] rounded-lg overflow-hidden border bg-black">
+    <div 
+      className="relative rounded-lg overflow-hidden group max-w-sm"
+      onMouseEnter={() => setShowControls(true)}
+      onMouseLeave={() => setShowControls(false)}
+    >
       <video
         ref={videoRef}
-        src={src}
-        poster={poster}
+        src={fileUrl}
         className="w-full h-auto max-h-[300px] object-contain"
         onTimeUpdate={handleTimeUpdate}
         onEnded={() => setIsPlaying(false)}
@@ -65,6 +83,14 @@ export default function VideoPlayer({ src, poster }) {
             <button onClick={toggleMute} className="p-1 hover:text-primary transition-colors">
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
+            <a 
+              href={fileUrl} 
+              download={attachment.fileName || 'video.mp4'}
+              className="p-1 hover:text-primary transition-colors"
+              title="Download Video"
+            >
+              <Download className="w-4 h-4" />
+            </a>
             <button onClick={toggleFullscreen} className="p-1 hover:text-primary transition-colors">
               <Maximize className="w-4 h-4" />
             </button>

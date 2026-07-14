@@ -42,6 +42,8 @@
     "react-redux": "^9.3.0",
     "react-router": "^8.2.0",
     "react-router-dom": "^7.18.1",
+    "react-syntax-highlighter": "^16.1.1",
+    "recharts": "^3.9.2",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
     "socket.io-client": "^4.8.3",

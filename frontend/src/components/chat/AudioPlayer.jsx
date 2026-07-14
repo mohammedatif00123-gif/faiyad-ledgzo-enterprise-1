@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Download } from 'lucide-react';
+import { Play, Pause, Download, Volume2, VolumeX } from 'lucide-react';
+import { useDecryptedMedia } from '../../hooks/useDecryptedMedia';
 
-export default function AudioPlayer({ src }) {
+export default function AudioPlayer({ attachment, message }) {
+  const { fileUrl, isLoading, error } = useDecryptedMedia(attachment, message);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -37,7 +39,7 @@ export default function AudioPlayer({ src }) {
       audio.removeEventListener('timeupdate', setAudioTime);
       audio.removeEventListener('ended', handleEnded);
     };
-  }, []);
+  }, [fileUrl]);
 
   const togglePlay = () => {
     if (isPlaying) {
@@ -67,9 +69,23 @@ export default function AudioPlayer({ src }) {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
+  if (error) {
+    return (
+      <div className="flex items-center gap-3 p-3 bg-red-900/20 text-red-500 rounded-lg max-w-[250px] border border-red-500/50">
+        <span className="text-xs font-semibold">🔒 Decryption Failed</span>
+      </div>
+    );
+  }
+
+  if (isLoading || !fileUrl) {
+    return <div className="h-10 w-40 bg-slate-700 animate-pulse rounded-full"></div>;
+  }
+
   return (
-    <div className="flex items-center gap-3 bg-background/50 border rounded-full p-2 w-[280px]">
-      <audio ref={audioRef} src={src} preload="metadata" />
+    <div className="flex items-center gap-3 bg-secondary/30 p-2 rounded-full border max-w-[250px] overflow-hidden group">
+      <audio 
+        ref={audioRef}
+        src={fileUrl} preload="metadata" />
       
       <button 
         onClick={togglePlay}
@@ -101,11 +117,10 @@ export default function AudioPlayer({ src }) {
           {playbackRate}x
         </button>
         <a 
-          href={src} 
-          download 
-          target="_blank" 
-          rel="noreferrer"
+          href={fileUrl} 
+          download={attachment.fileName || 'audio.webm'} 
           className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors"
+          title="Download Audio"
         >
           <Download className="w-3.5 h-3.5" />
         </a>

@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff, Loader2, Shield, Users } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { toast } from 'sonner';
 import { useDispatch } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../services/api';
@@ -70,7 +70,11 @@ const Login = () => {
         navigate(ROUTES.EMPLOYEE_DASHBOARD, { replace: true });
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to login');
+      if (error.response?.status === 401) {
+        toast.error('Your credentials are wrong. Please try again.');
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to login');
+      }
     } finally {
       setIsLoading(false);
     }

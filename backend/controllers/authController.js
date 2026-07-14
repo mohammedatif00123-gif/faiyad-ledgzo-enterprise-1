@@ -101,10 +101,44 @@ const getMe = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Update user profile
+ * @route   PUT /api/auth/profile
+ * @access  Private
+ */
+const updateProfile = async (req, res, next) => {
+  try {
+    const User = require('../models/User');
+    const { firstName, lastName, phone, personalEmail, emergencyContact } = req.body;
+    
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.firstName = firstName || user.firstName;
+    user.lastName = lastName || user.lastName;
+    user.phone = phone || user.phone;
+    user.personalEmail = personalEmail || user.personalEmail;
+    user.emergencyContact = emergencyContact || user.emergencyContact;
+
+    const updatedUser = await user.save();
+    
+    // Convert to regular object and remove password
+    const userObj = updatedUser.toObject();
+    delete userObj.password;
+    
+    sendResponse(res, 200, 'Profile updated successfully', userObj);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   login,
   logout,
   refresh,
   changePassword,
-  getMe
+  getMe,
+  updateProfile
 };

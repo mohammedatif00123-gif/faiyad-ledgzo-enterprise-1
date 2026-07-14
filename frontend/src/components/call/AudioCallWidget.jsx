@@ -3,7 +3,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { motion } from 'framer-motion';
 import { PhoneOff, Mic, MicOff, MoreHorizontal, Settings, Users, Signal, Volume2, Phone, UserPlus } from 'lucide-react';
 import { useWebRTC } from '../../hooks/useWebRTC';
-import { endCall, setActiveCall, updateParticipantState } from '../../store/slices/callSlice';
+import { endCall, setActiveCall, updateParticipantState, addCallParticipant } from '../../store/slices/callSlice';
 import api from '../../services/api';
 import { getAvatarUrl } from '../../utils/avatar';
 
@@ -19,6 +19,7 @@ export function AudioCallWidget({ socket }) {
 
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
 
   const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== user.id).map(p => p._id || p) || [];
   const [participantsDetails, setParticipantsDetails] = useState({});
@@ -65,11 +66,7 @@ export function AudioCallWidget({ socket }) {
 
     const onOffer = async (data) => {
       if (data.callId === activeCall?.callId) {
-        const currentParticipants = activeCall.participants || [];
-        const nextParticipants = normalizeParticipantIds([...currentParticipants, data.from]);
-        if (JSON.stringify(nextParticipants) !== JSON.stringify(normalizeParticipantIds(currentParticipants))) {
-          dispatch(setActiveCall({ participants: nextParticipants }));
-        }
+        dispatch(addCallParticipant(data.from));
         await handleOffer(data.offer, data.from);
       }
     };
@@ -84,11 +81,7 @@ export function AudioCallWidget({ socket }) {
 
     const onPeerJoined = (data) => {
       if (data.callId === activeCall?.callId) {
-        const currentParticipants = activeCall.participants || [];
-        const nextParticipants = normalizeParticipantIds([...currentParticipants, data.joinedUserId]);
-        if (JSON.stringify(nextParticipants) !== JSON.stringify(normalizeParticipantIds(currentParticipants))) {
-          dispatch(setActiveCall({ participants: nextParticipants }));
-        }
+        dispatch(addCallParticipant(data.joinedUserId));
         handlePeerJoined(data.joinedUserId);
       }
     };
@@ -157,7 +150,7 @@ export function AudioCallWidget({ socket }) {
   const primaryTarget = participantsDetails[primaryTargetId];
   const displayName = targetUserIds.length > 1 ? `${primaryTarget?.firstName} +${targetUserIds.length - 1}` : primaryTarget?.firstName;
 
-  const isExpanded = targetUserIds.length > 1;
+  const isExpanded = !isMinimized;
 
   if (isExpanded) {
     return (
@@ -177,6 +170,9 @@ export function AudioCallWidget({ socket }) {
             <div className="text-primary font-mono text-xl">
               {activeCall.status === 'Connected' ? formatDuration(duration) : activeCall.status}
             </div>
+            <button onClick={() => setIsMinimized(true)} className="p-2 hover:bg-white/10 rounded-full transition-colors" title="Minimize">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg>
+            </button>
             <button onClick={() => setShowSettings(true)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
               <Settings className="w-6 h-6" />
             </button>
@@ -222,8 +218,7 @@ export function AudioCallWidget({ socket }) {
             activeCall={activeCall} 
             onClose={() => setShowAddModal(false)} 
             onInvite={(userId) => {
-              const newParticipants = normalizeParticipantIds([...(activeCall.participants || []), userId]);
-              dispatch(setActiveCall({ participants: newParticipants }));
+              dispatch(addCallParticipant(userId));
             }}
           />
         )}
@@ -252,7 +247,7 @@ export function AudioCallWidget({ socket }) {
       ))}
 
       {/* Avatar Section */}
-      <div className="relative -ml-4 flex-shrink-0 bg-slate-900 rounded-2xl">
+      <div className="relative -ml-4 flex-shrink-0 bg-slate-900 rounded-2xl" onDoubleClick={() => setIsMinimized(false)}>
         <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-slate-700 bg-slate-800 flex items-center justify-center shadow-lg">
           {primaryTarget?.avatar ? (
             <img src={getAvatarUrl(primaryTarget.avatar)} alt="Avatar" className="w-full h-full object-cover" />
@@ -270,13 +265,21 @@ export function AudioCallWidget({ socket }) {
       </div>
 
       {/* Info Section */}
-      <div className="flex flex-col ml-3 flex-grow min-w-[100px] pointer-events-none">
+      <div className="flex flex-col ml-3 flex-grow min-w-[100px]" onDoubleClick={() => setIsMinimized(false)}>
         <span className="text-xs font-mono text-slate-400 font-semibold">{formatDuration(duration)}</span>
         <span className="text-sm font-semibold truncate max-w-[120px]">{displayName || 'Connecting...'}</span>
       </div>
 
       {/* Controls */}
       <div className="flex items-center gap-1.5 ml-2 pointer-events-auto shrink-0">
+        <button
+          onClick={() => setIsMinimized(false)}
+          className="w-10 h-10 rounded-xl flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+          title="Expand"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+        </button>
+
         <button
           onClick={handleToggleMute}
           className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${isMuted ? 'bg-slate-700 text-red-400' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}
@@ -315,8 +318,7 @@ export function AudioCallWidget({ socket }) {
           activeCall={activeCall} 
           onClose={() => setShowAddModal(false)} 
           onInvite={(userId) => {
-            const newParticipants = [...(activeCall.participants || []), userId];
-            dispatch(setActiveCall({ participants: newParticipants }));
+            dispatch(addCallParticipant(userId));
           }}
         />
       )}

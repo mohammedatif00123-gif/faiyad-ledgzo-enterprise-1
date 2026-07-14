@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { check } = require('express-validator');
-const { login, logout, refresh, changePassword, getMe } = require('../controllers/authController');
+const { login, logout, refresh, changePassword, getMe, updateProfile } = require('../controllers/authController');
 const { protect } = require('../middlewares/authMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
 const { loginLimiter } = require('../middlewares/rateLimiter');
@@ -23,5 +23,6 @@ router.post('/change-password', protect, [
 ], validate, changePassword);
 
 router.get('/me', protect, getMe);
+router.put('/profile', protect, updateProfile);
 
 module.exports = router;

@@ -12,11 +12,13 @@ import { MessageActions } from './MessageActions';
 import { EmojiPicker } from './EmojiPicker';
 import { formatMessageTime } from '../../utils/messageUtils';
 import { MessageImage } from './MessageImage';
+import { EncryptedBadge } from './EncryptedBadge';
 
 // Lazy loaded rich components
 const AudioPlayer = React.lazy(() => import('./AudioPlayer'));
 const DocumentCard = React.lazy(() => import('./DocumentCard'));
 const VideoPlayer = React.lazy(() => import('./VideoPlayer'));
+const { MessageCode } = React.lazy(() => import('./MessageCode').then(m => ({ default: m.MessageCode })));
 
 export const MessageBubble = React.memo(({ 
   message, 
@@ -55,9 +57,10 @@ export const MessageBubble = React.memo(({
     
     if (message.messageType === 'voice' || message.isVoice) {
       const att = message.attachments[0];
+      if (typeof att === 'string') return <div className="h-10 w-40 bg-slate-700 animate-pulse rounded-full"></div>;
       return (
         <React.Suspense fallback={<div className="h-10 w-40 bg-slate-700 animate-pulse rounded-full"></div>}>
-          <AudioPlayer src={import.meta.env.VITE_API_URL + att.fileUrl} />
+          <AudioPlayer attachment={att} message={message} />
         </React.Suspense>
       );
     }
@@ -65,20 +68,29 @@ export const MessageBubble = React.memo(({
     return (
       <div className="flex flex-wrap gap-1 mb-1">
         {message.attachments.map((att) => {
-          const url = import.meta.env.VITE_API_URL + att.fileUrl;
-          if (att.fileType === 'image') return <MessageImage key={att._id} attachment={att} />;
+          if (typeof att === 'string') {
+             return <div key={att} className="w-[250px] h-16 bg-slate-700 animate-pulse rounded-lg"></div>;
+          }
+          if (att.fileType === 'image') return <MessageImage key={att._id} attachment={att} message={message} />;
+          if (att.fileType === 'code') {
+            return (
+              <React.Suspense key={att._id} fallback={<div className="w-[500px] h-32 bg-slate-700 animate-pulse rounded-lg mt-2"></div>}>
+                <MessageCode attachment={att} message={message} />
+              </React.Suspense>
+            );
+          }
           if (att.fileType === 'video') {
             return (
               <div key={att._id} className="max-w-[300px]">
                 <React.Suspense fallback={<div className="w-[300px] h-[200px] bg-slate-700 animate-pulse rounded-lg"></div>}>
-                  <VideoPlayer src={url} />
+                  <VideoPlayer attachment={att} message={message} />
                 </React.Suspense>
               </div>
             );
           }
           return (
             <React.Suspense key={att._id} fallback={<div className="w-[250px] h-16 bg-slate-700 animate-pulse rounded-lg"></div>}>
-              <DocumentCard fileUrl={url} fileName={att.fileName} fileSize={att.fileSize} fileType={att.fileType} />
+              <DocumentCard attachment={att} message={message} />
             </React.Suspense>
           );
         })}
@@ -231,6 +243,7 @@ export const MessageBubble = React.memo(({
                 
                 {/* WhatsApp style time and ticks inside the bubble */}
                 <div className="flex items-center gap-1 mt-1 ml-3 shrink-0 self-end opacity-70">
+                  {message.isEncrypted && <EncryptedBadge />}
                   {message.isEdited && <span className="text-[10px] italic mr-1">edited</span>}
                   <span className="text-[10px] font-medium whitespace-nowrap">
                     {formatMessageTime(message.createdAt)}

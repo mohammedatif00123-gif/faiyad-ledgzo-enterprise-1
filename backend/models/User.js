@@ -67,6 +67,14 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    presenceStatus: {
+      type: String, 
+      enum: ['online', 'offline', 'away', 'in-break', 'in-meeting', 'busy'],
+      default: 'offline'
+    },
+    awayReason: String,
+    awaySince: Date,
+    awayDuration: Number,
     socketId: String,
     loginAttempts: {
       type: Number,

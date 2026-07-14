@@ -1,12 +1,14 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-require('dotenv').config();
 const cookieParser = require('cookie-parser');
 const authRoutes = require('./routes/authRoutes');
 const employeeRoutes = require('./routes/employeeRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const leaveRoutes = require('./routes/leaveRoutes');
 const presenceRoutes = require('./routes/presenceRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const messageRoutes = require('./routes/messageRoutes');
@@ -15,6 +17,8 @@ const searchRoutes = require('./routes/searchRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const groupRoutes = require('./routes/groupRoutes');
 const callRoutes = require('./routes/callRoutes');
+const holidayRoutes = require('./routes/holidayRoutes');
+const keyRoutes = require('./routes/keyRoutes');
 const path = require('path');
 const { errorHandler, notFound } = require('./middlewares/errorMiddleware');
 
@@ -50,7 +54,9 @@ app.get('/api/health', (req, res) => {
 // Import and use routes here
 app.use('/api/auth', authRoutes);
 app.use('/api/employees', employeeRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/attendance', attendanceRoutes);
+app.use('/api/leaves', leaveRoutes);
 app.use('/api/presence', presenceRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/messages', messageRoutes);
@@ -59,6 +65,8 @@ app.use('/api/search', searchRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/calls', callRoutes);
+app.use('/api/holidays', holidayRoutes);
+app.use('/api/keys', keyRoutes);
 
 // Error Handling Middlewares
 app.use(notFound);

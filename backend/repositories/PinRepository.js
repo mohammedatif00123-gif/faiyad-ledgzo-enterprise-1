@@ -10,7 +10,7 @@ class PinRepository extends BaseRepository {
     return await this.model.findOneAndUpdate(
       { conversation: conversationId, message: messageId },
       { pinnedBy: userId, pinnedAt: Date.now() },
-      { new: true, upsert: true }
+      { returnDocument: 'after', upsert: true }
     ).populate('message');
   }
 

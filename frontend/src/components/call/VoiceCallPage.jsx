@@ -1,25 +1,26 @@
 import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Mic, MicOff, Phone, Volume2, Settings, Signal, User, UserPlus, Share2 } from 'lucide-react';
+import { Mic, MicOff, Phone, Volume2, Settings, Signal, User, UserPlus, Share2, Loader2 } from 'lucide-react';
 import { useWebRTC } from '../../hooks/useWebRTC';
-import { endCall, setActiveCall } from '../../store/slices/callSlice';
+import { endCall, setActiveCall, addCallParticipant } from '../../store/slices/callSlice';
+import { setActiveConversation } from '../../store/slices/chatSlice';
 import api from '../../services/api';
 import { getAvatarUrl } from '../../utils/avatar';
 import { AddParticipantModal } from './AddParticipantModal';
+import { ChatArea } from '../chat/ChatArea';
+import { useSpeechDetection } from '../../hooks/useSpeechDetection';
 
 // Component for rendering a single participant's tile
-export const ParticipantTile = ({ userDetails, stream, isMuted, isSpeaking, label, connectionState }) => {
-  useEffect(() => {
-    if (stream) {
-      const audio = new Audio();
-      audio.srcObject = stream;
-      audio.autoplay = true;
-      audio.play().catch(e => console.log('Audio play failed', e));
-    }
-  }, [stream]);
+export const ParticipantTile = ({ userDetails, stream, isMuted, isSpeaking, label, connectionState, isLocal }) => {
+  const isActuallySpeaking = useSpeechDetection(stream);
 
   return (
     <div className="flex flex-col items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10 relative">
+      <audio 
+        autoPlay 
+        muted={isLocal} 
+        ref={audio => { if (audio && audio.srcObject !== stream) audio.srcObject = stream; }} 
+      />
       <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border-4 border-primary/30 relative">
         {userDetails?.avatar ? (
           <img src={getAvatarUrl(userDetails.avatar)} alt="Avatar" className="w-full h-full object-cover" />
@@ -27,14 +28,21 @@ export const ParticipantTile = ({ userDetails, stream, isMuted, isSpeaking, labe
           <User className="w-12 h-12 text-white/50" />
         )}
         {/* Speaking Indicator */}
-        {isSpeaking && (
+        {(isSpeaking || isActuallySpeaking) && (
           <div className="absolute inset-0 border-4 border-green-500 rounded-full animate-pulse" />
         )}
       </div>
       <div className="text-center">
-        <h3 className="font-medium text-lg">{userDetails ? `${userDetails.firstName} ${userDetails.lastName}` : label}</h3>
-        <p className="text-white/60 text-xs">
-          {connectionState === 'connected' ? (userDetails?.department || 'Connected') : 'Connecting...'}
+        <h3 className="font-medium text-lg">
+          {userDetails ? `${userDetails.firstName} ${userDetails.lastName}` : label}
+          {isLocal && ' (You)'}
+        </h3>
+        <p className="text-white/60 text-xs flex items-center justify-center gap-1">
+          {(connectionState === 'disconnected' || connectionState === 'failed') ? (
+            <><Loader2 className="w-3 h-3 animate-spin" /> Reconnecting...</>
+          ) : (
+            connectionState === 'connected' ? (userDetails?.department || 'Connected') : 'Connecting...'
+          )}
         </p>
       </div>
       {isMuted && (
@@ -63,11 +71,12 @@ export function VoiceCallPage({ socket }) {
   const isGroupCall = conversation?.type === 'channel';
 
   const [participantsDetails, setParticipantsDetails] = useState({});
+  const [showChat, setShowChat] = useState(false);
   const normalizeParticipantIds = (participants = []) => Array.from(new Set((participants || []).map(p => typeof p === 'string' ? p : p?._id || p).filter(Boolean)));
 
   const { 
     initWebRTC, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined,
-    toggleMute, cleanup, isReady, remoteMediaStreams, startScreenShare, stopScreenShare
+    toggleMute, cleanup, isReady, remoteMediaStreams, localMediaStream, startScreenShare, stopScreenShare
   } = useWebRTC(socket, activeCall?.callId, user.id);
 
   // Fetch details for all remote participants
@@ -98,11 +107,7 @@ export function VoiceCallPage({ socket }) {
 
     const onOffer = async (data) => {
       if (data.callId === activeCall?.callId) {
-        const currentParticipants = activeCall.participants || [];
-        const nextParticipants = normalizeParticipantIds([...currentParticipants, data.from]);
-        if (JSON.stringify(nextParticipants) !== JSON.stringify(normalizeParticipantIds(currentParticipants))) {
-          dispatch(setActiveCall({ participants: nextParticipants }));
-        }
+        dispatch(addCallParticipant(data.from));
         await handleOffer(data.offer, data.from);
       }
     };
@@ -121,12 +126,7 @@ export function VoiceCallPage({ socket }) {
 
     const onPeerJoined = (data) => {
       if (data.callId === activeCall?.callId) {
-        // Add them to redux activeCall participants so UI updates
-        const currentParticipants = activeCall.participants || [];
-        const nextParticipants = normalizeParticipantIds([...currentParticipants, data.joinedUserId]);
-        if (JSON.stringify(nextParticipants) !== JSON.stringify(normalizeParticipantIds(currentParticipants))) {
-          dispatch(setActiveCall({ participants: nextParticipants }));
-        }
+        dispatch(addCallParticipant(data.joinedUserId));
         handlePeerJoined(data.joinedUserId);
       }
     };
@@ -146,10 +146,29 @@ export function VoiceCallPage({ socket }) {
 
   // Duration timer
   useEffect(() => {
-    if (activeCall?.status !== 'Connected') return;
-    const interval = setInterval(() => setDuration(d => d + 1), 1000);
-    return () => clearInterval(interval);
+    if (activeCall?.status === 'Connecting') {
+      setDuration(0);
+    } else if (activeCall?.status === 'Connected') {
+      const interval = setInterval(() => setDuration(d => d + 1), 1000);
+      return () => clearInterval(interval);
+    }
   }, [activeCall?.status]);
+
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ignore if typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      if (e.key.toLowerCase() === 'm') {
+        handleToggleMute();
+      } else if (e.key === 'Escape') {
+        handleEndCall();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMuted, activeCall]);
 
   const handleEndCall = () => {
     if (activeCall?.callId) {
@@ -193,18 +212,34 @@ export function VoiceCallPage({ socket }) {
     return 'text-red-500';
   };
 
+  const handleToggleChat = () => {
+    if (!showChat && activeCall?.conversationId) {
+      dispatch(setActiveConversation(activeCall.conversationId));
+    }
+    setShowChat(!showChat);
+  };
+
   if (!activeCall) return null;
 
   return (
-    <div className="absolute inset-0 z-50 flex flex-col items-center justify-between bg-black/95 text-white animate-in fade-in duration-300 overflow-y-auto">
+    <div className="absolute inset-0 z-50 flex flex-row overflow-hidden bg-black/95 text-white animate-in fade-in duration-300">
       
-      {/* Header Info */}
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col items-center justify-between overflow-y-auto">
+        {/* Header Info */}
       <div className="w-full flex justify-between p-6 shrink-0">
         <div className="flex items-center gap-2">
           <Signal className={`w-5 h-5 ${getNetworkColor()}`} />
           <span className="text-sm font-medium">{networkQuality} Connection</span>
         </div>
         <div className="flex items-center gap-4">
+          <button 
+            onClick={handleToggleChat} 
+            className={`p-2 rounded-full transition-colors ${showChat ? 'bg-primary/20 text-primary' : 'hover:bg-white/10'}`}
+            title="Chat"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          </button>
           {isGroupCall && (
             <div className="px-3 py-1 bg-white/10 rounded-full border border-white/20">
               <span className="font-semibold text-white/90 text-sm">{conversation?.name}</span>
@@ -221,11 +256,12 @@ export function VoiceCallPage({ socket }) {
 
       {/* Main Call Info / Grid */}
       <div className="flex-1 w-full max-w-6xl p-6 flex items-center justify-center">
-        <div className={`grid gap-6 w-full ${targetUserIds.length > 1 ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 max-w-sm'}`}>
-          {targetUserIds.map(id => {
-            const state = participantStates[id] || {};
-            const stream = remoteMediaStreams[id];
-            const details = participantsDetails[id];
+        <div className={`grid gap-6 w-full ${targetUserIds.length > 0 ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 max-w-sm'}`}>
+          {[user.id, ...targetUserIds].map(id => {
+            const isLocal = id === user.id;
+            const state = isLocal ? { muted: isMuted, speaking: false, connectionState: 'connected' } : (participantStates[id] || {});
+            const stream = isLocal ? localMediaStream : remoteMediaStreams[id];
+            const details = isLocal ? user : participantsDetails[id];
             return (
               <ParticipantTile 
                 key={id}
@@ -234,7 +270,8 @@ export function VoiceCallPage({ socket }) {
                 isMuted={state.muted}
                 isSpeaking={state.speaking}
                 connectionState={state.connectionState}
-                label="Connecting..."
+                label={isLocal ? "You" : "Connecting..."}
+                isLocal={isLocal}
               />
             );
           })}
@@ -293,6 +330,16 @@ export function VoiceCallPage({ socket }) {
             dispatch(setActiveCall({ participants: newParticipants }));
           }}
         />
+      )}
+      </div>
+
+      {/* Chat Drawer */}
+      {showChat && (
+        <div className="w-80 md:w-96 border-l border-white/10 bg-[var(--ent-background)] flex flex-col h-full z-10 animate-in slide-in-from-right duration-300 shrink-0">
+          <div className="flex-1 overflow-hidden relative">
+            <ChatArea socket={socket} />
+          </div>
+        </div>
       )}
     </div>
   );

@@ -23,10 +23,22 @@ export function VideoPreJoinModal({ user, onJoin, onCancel, callType }) {
           videoRef.current.srcObject = stream;
         }
       } catch (err) {
-        console.error('Error accessing media devices.', err);
-        setError('Could not access camera/microphone. Please check permissions.');
+        console.warn('Error accessing video/audio.', err.message);
         setIsVideoEnabled(false);
-        setIsAudioEnabled(false);
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: true
+          });
+          streamRef.current = audioStream;
+          if (videoRef.current) {
+            videoRef.current.srcObject = audioStream;
+          }
+        } catch (audioErr) {
+          console.error('Error accessing audio only.', audioErr);
+          setError('Could not access camera/microphone. Please check permissions.');
+          setIsAudioEnabled(false);
+        }
       }
     };
     initPreview();

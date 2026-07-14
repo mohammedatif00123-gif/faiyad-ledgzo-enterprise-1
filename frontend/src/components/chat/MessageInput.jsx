@@ -4,13 +4,18 @@ import { useDispatch, useSelector } from 'react-redux';
 import { saveDraft } from '../../store/slices/chatSlice';
 import EmojiPicker from 'emoji-picker-react';
 import api from '../../services/api';
+import { useE2EE } from '../../context/E2EEContext';
+import { generateAESKey, encryptFile, exportAESKey, encryptText } from '../../utils/cryptoService';
+import { toast } from 'sonner';
 
 // Lazy load MentionDropdown
 const MentionDropdown = React.lazy(() => import('./MentionDropdown'));
 
 export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCancelReply }) {
   const dispatch = useDispatch();
-  const { drafts } = useSelector(state => state.chat);
+  const { drafts, conversations } = useSelector(state => state.chat);
+  const { user } = useSelector(state => state.auth);
+  const { isReady: isE2EEReady, getSharedSecret, encryptGroupMessage, encryptDirectMessage, getGroupKey } = useE2EE();
   const draftKey = `${conversationId}_${replyTo ? replyTo._id : 'root'}`;
   
   const [content, setContent] = useState(drafts[draftKey] || '');
@@ -59,7 +64,16 @@ export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCanc
       e.preventDefault();
       setIsDragging(false);
       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-        setSelectedFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]);
+        const newFiles = Array.from(e.dataTransfer.files);
+        const validFiles = [];
+        newFiles.forEach(file => {
+          if (file.size > 10 * 1024 * 1024) {
+            toast.error(`${file.name} exceeds the 10MB Cloudinary limit.`);
+          } else {
+            validFiles.push(file);
+          }
+        });
+        setSelectedFiles(prev => [...prev, ...validFiles]);
       }
     };
 
@@ -93,7 +107,15 @@ export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCanc
         }
       }
       if (files.length > 0) {
-        setSelectedFiles(prev => [...prev, ...files]);
+        const validFiles = [];
+        files.forEach(file => {
+          if (file.size > 10 * 1024 * 1024) {
+            toast.error(`${file.name} exceeds the 10MB Cloudinary limit.`);
+          } else {
+            validFiles.push(file);
+          }
+        });
+        setSelectedFiles(prev => [...prev, ...validFiles]);
       }
     };
     document.addEventListener('paste', handlePaste);
@@ -222,7 +244,16 @@ export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCanc
 
   const handleFileChange = (e) => {
     if (e.target.files) {
-      setSelectedFiles(prev => [...prev, ...Array.from(e.target.files)]);
+      const newFiles = Array.from(e.target.files);
+      const validFiles = [];
+      newFiles.forEach(file => {
+        if (file.size > 10 * 1024 * 1024) {
+          toast.error(`${file.name} exceeds the 10MB Cloudinary limit.`);
+        } else {
+          validFiles.push(file);
+        }
+      });
+      setSelectedFiles(prev => [...prev, ...validFiles]);
     }
   };
 
@@ -247,16 +278,87 @@ export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCanc
     try {
       if (selectedFiles.length > 0 || voiceBlob) {
         const formData = new FormData();
+        const conversation = conversations.find(c => c._id === conversationId);
         
+        let e2eeKeyToUse = null; // Either a shared secret or a group CryptoKey
+        let isDirect = conversation?.type === 'direct';
+
+        if (isE2EEReady) {
+           if (isDirect) {
+             const participants = conversation?.participants || conversation?.users || [];
+             const partner = participants.find(p => {
+               const pId = typeof p === 'object' ? (p._id || p.id) : p;
+               return pId !== (user?._id || user?.id);
+             });
+             const partnerId = partner ? (typeof partner === 'object' ? (partner._id || partner.id) : partner) : null;
+             if (partnerId) {
+                e2eeKeyToUse = await getSharedSecret(partnerId);
+             }
+           } else {
+             e2eeKeyToUse = await getGroupKey(conversationId);
+           }
+        }
+
+        const appendEncryptedFile = async (fileObj, originalName) => {
+          let fileToUpload = fileObj;
+          let metadata = {};
+          
+          if (isE2EEReady && e2eeKeyToUse) {
+             try {
+                // Generate random AES key for this file
+                const randomFileKey = await generateAESKey();
+                const arrayBuf = await fileObj.arrayBuffer();
+                
+                // Encrypt the file
+                const encFile = await encryptFile(randomFileKey, arrayBuf);
+                
+                // Create a new Blob from the ciphertext
+                fileToUpload = new Blob([encFile.ciphertext], { type: fileObj.type });
+                
+                // Export the random file key
+                const jwk = await exportAESKey(randomFileKey);
+                const jwkString = JSON.stringify(jwk);
+                
+                // Encrypt the random file key with the conversation E2EE key
+                let encryptedKeyData;
+                if (isDirect) {
+                   encryptedKeyData = await encryptText(e2eeKeyToUse, jwkString); // e2eeKeyToUse is sharedSecret
+                } else {
+                   encryptedKeyData = await encryptText(e2eeKeyToUse, jwkString); // e2eeKeyToUse is groupKey (AES)
+                }
+
+                metadata = {
+                  isEncrypted: true,
+                  fileIv: encFile.iv,
+                  encryptedKey: encryptedKeyData.ciphertext,
+                  keyIv: encryptedKeyData.iv
+                };
+             } catch (err) {
+                console.error('[E2EE] File encryption failed:', err);
+             }
+          }
+          
+          formData.append('files', fileToUpload, originalName);
+          return metadata;
+        };
+        
+        const metadataArray = [];
+
         if (selectedFiles.length > 0) {
-          selectedFiles.forEach(file => formData.append('files', file));
+          for (const file of selectedFiles) {
+            const meta = await appendEncryptedFile(file, file.name);
+            metadataArray.push(meta);
+          }
         }
         
         if (voiceBlob) {
-          formData.append('files', voiceBlob, 'voice_note.webm');
           messageType = 'voice';
-          formData.append('metadata', JSON.stringify({ duration: recordingTime }));
+          const meta = await appendEncryptedFile(voiceBlob, 'voice_note.webm');
+          meta.duration = recordingTime;
+          metadataArray.push(meta);
         }
+
+        formData.append('metadata', JSON.stringify(metadataArray)); // Send array of metadata
 
         const res = await api.post('/upload', formData, {
           headers: { 'Content-Type': 'multipart/form-data' }

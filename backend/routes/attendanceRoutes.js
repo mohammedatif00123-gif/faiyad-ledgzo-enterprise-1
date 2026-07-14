@@ -1,20 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const { startWork, endWork, breakStart, breakEnd, getMyToday, getMyHistory, getAllAttendance } = require('../controllers/attendanceController');
+const { checkIn, checkOut, getTodayAttendance, getAllAttendance, getMyHistory, getOnLeaveToday } = require('../controllers/attendanceController');
 const { protect, admin } = require('../middlewares/authMiddleware');
 
-router.use(protect);
-
-// Employee routes
-router.post('/start', startWork);
-router.post('/end', endWork);
-router.post('/break/start', breakStart);
-router.post('/break/end', breakEnd);
-router.get('/me/today', getMyToday);
-router.get('/me/history', getMyHistory);
+router.post('/check-in', protect, checkIn);
+router.post('/check-out', protect, checkOut);
+router.get('/today', protect, getTodayAttendance);
+router.get('/history', protect, getMyHistory);
+router.get('/on-leave-today', protect, getOnLeaveToday);
 
 // Admin routes
-router.use(admin);
-router.get('/', getAllAttendance);
+router.get('/admin/all', protect, admin, getAllAttendance);
 
 module.exports = router;

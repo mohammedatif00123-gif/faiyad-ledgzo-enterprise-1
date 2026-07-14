@@ -1,8 +1,8 @@
+require('dotenv').config();
 const http = require('http');
 const app = require('./app');
 const { initSocket } = require('./sockets');
 const connectDB = require('./config/db');
-require('dotenv').config();
 
 const PORT = process.env.PORT || 5000;
 

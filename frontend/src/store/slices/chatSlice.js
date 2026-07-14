@@ -25,9 +25,9 @@ export const updateGroupInfo = createAsyncThunk('chat/updateGroupInfo', async ({
   }
 });
 
-export const addGroupMembers = createAsyncThunk('chat/addGroupMembers', async ({ conversationId, memberIds }, { rejectWithValue }) => {
+export const addGroupMembers = createAsyncThunk('chat/addGroupMembers', async ({ conversationId, memberIds, encryptedKeys }, { rejectWithValue }) => {
   try {
-    const res = await api.post(`/chat/conversations/${conversationId}/members`, { memberIds });
+    const res = await api.post(`/chat/conversations/${conversationId}/members`, { memberIds, encryptedKeys });
     return res.data.data;
   } catch (error) {
     return rejectWithValue(error.response?.data?.message || 'Failed to add members');

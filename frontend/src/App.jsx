@@ -8,15 +8,23 @@ import { AppShell } from './components/layout/AppShell';
 import { Error401, Error403, Error404, Error500 } from './pages/error/ErrorPages';
 import { Skeleton } from './components/ui/Skeleton';
 import { ROUTES } from './constants';
+import { useSessionTimeout } from './hooks/useSessionTimeout';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
 // Lazy load feature pages
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 const EmployeeManagement = lazy(() => import('./pages/admin/EmployeeManagement'));
 const AdminAttendance = lazy(() => import('./pages/admin/AttendanceManagement'));
+const LeaveApprovals = lazy(() => import('./pages/admin/LeaveApprovals'));
+const SettingsPage = lazy(() => import('./pages/admin/SettingsPage'));
+const NotificationsPage = lazy(() => import('./pages/admin/NotificationsPage'));
 const EmployeeDashboard = lazy(() => import('./pages/employee/EmployeeDashboard'));
 const EmployeeAttendance = lazy(() => import('./pages/employee/Attendance'));
 const ChatPage = lazy(() => import('./pages/employee/ChatPage'));
+const ProfileSettings = lazy(() => import('./pages/employee/ProfileSettings'));
 const ChangePassword = lazy(() => import('./pages/auth/ChangePassword'));
+const ComingSoon = lazy(() => import('./pages/error/ComingSoon'));
+import { Video, Mail } from 'lucide-react';
 
 function SuspenseLoader() {
   return (
@@ -31,6 +39,10 @@ function App() {
   const isAuthenticated = useSelector(selectIsAuthenticated);
   const user = useSelector(selectCurrentUser);
   const theme = useSelector(selectTheme);
+
+  // Apply hooks
+  useSessionTimeout();
+  useKeyboardShortcuts();
 
   React.useEffect(() => {
     const root = window.document.documentElement;
@@ -66,6 +78,9 @@ function App() {
           <Route path="/admin" element={<Suspense fallback={<SuspenseLoader />}><AdminDashboard /></Suspense>} />
           <Route path="/admin/employees" element={<Suspense fallback={<SuspenseLoader />}><EmployeeManagement /></Suspense>} />
           <Route path="/admin/attendance" element={<Suspense fallback={<SuspenseLoader />}><AdminAttendance /></Suspense>} />
+          <Route path="/admin/leaves" element={<Suspense fallback={<SuspenseLoader />}><LeaveApprovals /></Suspense>} />
+          <Route path="/admin/settings" element={<Suspense fallback={<SuspenseLoader />}><SettingsPage /></Suspense>} />
+          <Route path="/admin/notifications" element={<Suspense fallback={<SuspenseLoader />}><NotificationsPage /></Suspense>} />
         </Route>
         
         {/* Employee Routes */}
@@ -73,9 +88,26 @@ function App() {
           <Route path="/employee" element={<Suspense fallback={<SuspenseLoader />}><EmployeeDashboard /></Suspense>} />
           <Route path="/employee/attendance" element={<Suspense fallback={<SuspenseLoader />}><EmployeeAttendance /></Suspense>} />
           <Route path="/employee/chats" element={<Suspense fallback={<SuspenseLoader />}><ChatPage /></Suspense>} />
+          <Route path="/employee/profile" element={<Suspense fallback={<SuspenseLoader />}><ProfileSettings /></Suspense>} />
           {/* Future Modules Go Here */}
-          <Route path="/employee/meetings" element={<div>Meetings Placeholder</div>} />
-          <Route path="/employee/mailbox" element={<div>Mailbox Placeholder</div>} />
+          <Route path="/employee/meetings" element={
+            <Suspense fallback={<SuspenseLoader />}>
+              <ComingSoon 
+                title="Virtual Meetings" 
+                description="High-quality video conferencing and meeting scheduling is currently under development. Stay tuned!"
+                icon={Video}
+              />
+            </Suspense>
+          } />
+          <Route path="/employee/mailbox" element={
+            <Suspense fallback={<SuspenseLoader />}>
+              <ComingSoon 
+                title="Internal Mailbox" 
+                description="Secure internal email and notification management system is coming in the next major update."
+                icon={Mail}
+              />
+            </Suspense>
+          } />
         </Route>
 
         {/* Error Routes */}

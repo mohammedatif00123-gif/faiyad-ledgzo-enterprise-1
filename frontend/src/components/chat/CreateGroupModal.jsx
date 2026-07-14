@@ -3,10 +3,14 @@ import { useDispatch, useSelector } from 'react-redux';
 import { X, Users, Search, Check, UploadCloud, XCircle } from 'lucide-react';
 import api from '../../services/api';
 import { setConversations } from '../../store/slices/chatSlice';
+import { useE2EE } from '../../context/E2EEContext';
+import { generateAESKey, exportAESKey, encryptText } from '../../utils/cryptoService';
 
 export function CreateGroupModal({ onClose }) {
   const dispatch = useDispatch();
   const { conversations } = useSelector(state => state.chat);
+  const { user } = useSelector(state => state.auth);
+  const { isReady: isE2EEReady, getSharedSecret } = useE2EE();
   
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -60,12 +64,38 @@ export function CreateGroupModal({ onClose }) {
         }
       }
 
+      // E2EE: Generate Group Key and encrypt for each member
+      let encryptedKeys = [];
+      if (isE2EEReady) {
+        try {
+          const groupKey = await generateAESKey();
+          const jwk = await exportAESKey(groupKey);
+          const jwkString = JSON.stringify(jwk);
+
+          const allMembers = [...selectedIds, user._id || user.id];
+          
+          for (const memberId of allMembers) {
+             const sharedSecret = await getSharedSecret(memberId);
+             if (sharedSecret) {
+               const encrypted = await encryptText(sharedSecret, jwkString);
+               encryptedKeys.push({
+                 user: memberId,
+                 encryptedKey: encrypted
+               });
+             }
+          }
+        } catch (err) {
+          console.error('[E2EE] Group Key generation failed:', err);
+        }
+      }
+
       const payload = {
         name,
         description,
         visibility,
         members: selectedIds,
-        avatar: avatarUrl
+        avatar: avatarUrl,
+        encryptedKeys
       };
 
       const res = await api.post('/chat/channel', payload);

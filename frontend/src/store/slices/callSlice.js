@@ -27,6 +27,17 @@ const callSlice = createSlice({
       state.activeCall = { ...state.activeCall, ...action.payload };
       state.incomingCall = null;
     },
+    addCallParticipant: (state, action) => {
+      if (state.activeCall) {
+        const currentParticipants = state.activeCall.participants || [];
+        const newUserId = typeof action.payload === 'string' ? action.payload : (action.payload._id || action.payload);
+        // We only add if it's not already in the array
+        const normalizedParticipants = currentParticipants.map(p => typeof p === 'string' ? p : p?._id || p);
+        if (!normalizedParticipants.includes(newUserId)) {
+          state.activeCall.participants = [...currentParticipants, newUserId];
+        }
+      }
+    },
     updateCallStatus: (state, action) => {
       if (state.activeCall) {
         // action.payload can be a string (status) or an object { status, callId }
@@ -84,7 +95,8 @@ export const {
   setNetworkQuality,
   setDevicePreferences,
   updateParticipantState,
-  setCallHistory
+  setCallHistory,
+  addCallParticipant
 } = callSlice.actions;
 
 export default callSlice.reducer;

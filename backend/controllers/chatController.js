@@ -33,8 +33,8 @@ exports.createDirect = async (req, res, next) => {
 
 exports.createChannel = async (req, res, next) => {
   try {
-    const { name, members, description, avatar, visibility } = req.body;
-    const conversation = await ChatService.createChannel(req.user.id, name, members, { description, avatar, visibility });
+    const { name, members, description, avatar, visibility, encryptedKeys } = req.body;
+    const conversation = await ChatService.createChannel(req.user.id, name, members, { description, avatar, visibility, encryptedKeys });
     sendResponse(res, 201, 'Channel created', conversation);
   } catch (error) {
     next(error);
@@ -45,8 +45,23 @@ exports.getChatDirectory = async (req, res, next) => {
   try {
     const User = require('../models/User');
     const Presence = require('../models/Presence');
-    const users = await User.find({ status: 'Active' }).select('firstName lastName avatar role isOnline').lean();
+    const Attendance = require('../models/Attendance');
+    const Leave = require('../models/Leave');
+
+    const users = await User.find({ status: 'Active' }).select('firstName lastName avatar role isOnline presenceStatus').lean();
     
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(today);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const attendances = await Attendance.find({ date: { $gte: today } }).lean();
+    const activeLeaves = await Leave.find({
+      status: { $regex: /^approved$/i },
+      fromDate: { $lte: endOfDay },
+      toDate: { $gte: today }
+    }).lean();
+
     const userIds = users.map(u => u._id);
     const presences = await Presence.find({ user: { $in: userIds } }).lean();
     
@@ -55,10 +70,29 @@ exports.getChatDirectory = async (req, res, next) => {
       presenceMap[p.user.toString()] = p.status;
     });
 
-    const enrichedUsers = users.map(u => ({
-      ...u,
-      status: presenceMap[u._id.toString()] || (u.isOnline ? 'Online' : 'Offline')
-    }));
+    const enrichedUsers = users.map(u => {
+      const att = attendances.find(a => a.employeeId && a.employeeId.toString() === u._id.toString());
+      const isLeave = activeLeaves.find(l => l.employeeId && l.employeeId.toString() === u._id.toString());
+      
+      let finalStatus = 'Offline';
+      if (isLeave) {
+        finalStatus = 'On Leave';
+      } else if (att && !att.checkOut) {
+        // Checked in and not checked out
+        const pStatus = u.presenceStatus || presenceMap[u._id.toString()];
+        if (pStatus && pStatus.toLowerCase() !== 'offline') {
+           finalStatus = pStatus.charAt(0).toUpperCase() + pStatus.slice(1);
+        } else {
+           finalStatus = 'Online';
+        }
+      }
+
+      return {
+        ...u,
+        status: finalStatus,
+        isOnline: finalStatus !== 'Offline' && finalStatus !== 'On Leave'
+      };
+    });
 
     sendResponse(res, 200, 'Directory fetched', enrichedUsers);
   } catch (error) {
@@ -96,7 +130,7 @@ exports.pinConversation = async (req, res, next) => {
     await ConversationMember.findOneAndUpdate(
       { conversation: conversationId, user: req.user.id },
       { isPinned },
-      { new: true }
+      { returnDocument: 'after' }
     );
     
     sendResponse(res, 200, isPinned ? 'Conversation pinned' : 'Conversation unpinned', { isPinned });
@@ -126,7 +160,7 @@ exports.muteConversation = async (req, res, next) => {
     await ConversationMember.findOneAndUpdate(
       { conversation: conversationId, user: req.user.id },
       { isMuted, notificationMuteUntil },
-      { new: true }
+      { returnDocument: 'after' }
     );
     
     sendResponse(res, 200, isMuted ? 'Conversation muted' : 'Conversation unmuted', { isMuted, notificationMuteUntil });
@@ -149,8 +183,8 @@ exports.updateGroupInfo = async (req, res, next) => {
 exports.addGroupMembers = async (req, res, next) => {
   try {
     const { conversationId } = req.params;
-    const { memberIds } = req.body;
-    const conversation = await ChatService.addGroupMembers(req.user.id, conversationId, memberIds);
+    const { memberIds, encryptedKeys } = req.body;
+    const conversation = await ChatService.addGroupMembers(req.user.id, conversationId, memberIds, encryptedKeys);
     sendResponse(res, 200, 'Members added successfully', conversation);
   } catch (error) {
     next(error);

@@ -10,7 +10,7 @@ class AttendanceRepository {
   }
 
   async updateById(id, data) {
-    return await Attendance.findByIdAndUpdate(id, data, { new: true });
+    return await Attendance.findByIdAndUpdate(id, data, { returnDocument: 'after' });
   }
 
   async find(query = {}) {
@@ -38,7 +38,7 @@ class AttendanceRepository {
           events: { type: eventType, timestamp: new Date(), note }
         }
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
   }
 }

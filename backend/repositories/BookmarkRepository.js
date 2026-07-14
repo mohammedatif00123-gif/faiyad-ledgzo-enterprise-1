@@ -10,7 +10,7 @@ class BookmarkRepository extends BaseRepository {
     return await this.model.findOneAndUpdate(
       { user: userId, message: messageId },
       { note },
-      { new: true, upsert: true }
+      { returnDocument: 'after', upsert: true }
     );
   }
 

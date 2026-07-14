@@ -24,7 +24,7 @@ export function CallToolbar({
         <button 
           onClick={onToggleMute}
           className={`p-3 rounded-full transition-all ${isMuted ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30' : 'bg-white/10 text-white hover:bg-white/20'}`}
-          title={isMuted ? "Unmute" : "Mute"}
+          title={isMuted ? "Unmute (M)" : "Mute (M)"}
         >
           {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
@@ -32,7 +32,7 @@ export function CallToolbar({
         <button 
           onClick={onToggleVideo}
           className={`p-3 rounded-full transition-all ${!isVideoEnabled ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30' : 'bg-white/10 text-white hover:bg-white/20'}`}
-          title={isVideoEnabled ? "Stop Video" : "Start Video"}
+          title={isVideoEnabled ? "Stop Video (V)" : "Start Video (V)"}
         >
           {isVideoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
         </button>
@@ -50,7 +50,7 @@ export function CallToolbar({
       <button 
         onClick={onEndCall}
         className="mx-2 p-4 rounded-full bg-red-500 text-white hover:bg-red-600 transition-all shadow-[0_0_20px_rgba(239,68,68,0.4)]"
-        title="End Call"
+        title="End Call (Esc)"
       >
         <Phone className="w-6 h-6 rotate-[135deg]" />
       </button>

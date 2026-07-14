@@ -4,9 +4,12 @@ import { X, UserPlus, Search } from 'lucide-react';
 import api from '../../services/api';
 import { addGroupMembers } from '../../store/slices/chatSlice';
 import { getAvatarUrl } from '../../utils/avatar';
+import { useE2EE } from '../../context/E2EEContext';
+import { exportAESKey, encryptText } from '../../utils/cryptoService';
 
 export function AddGroupMemberModal({ conversationId, currentMembers, onClose, onMembersAdded }) {
   const dispatch = useDispatch();
+  const { isReady: isE2EEReady, getSharedSecret, getGroupKey } = useE2EE();
   
   const [employees, setEmployees] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -35,7 +38,31 @@ export function AddGroupMemberModal({ conversationId, currentMembers, onClose, o
     if (selectedIds.length === 0) return;
     setIsSubmitting(true);
     try {
-      const res = await dispatch(addGroupMembers({ conversationId, memberIds: selectedIds })).unwrap();
+      let encryptedKeys = [];
+      if (isE2EEReady) {
+        try {
+          const groupKey = await getGroupKey(conversationId);
+          if (groupKey) {
+             const jwk = await exportAESKey(groupKey);
+             const jwkString = JSON.stringify(jwk);
+             
+             for (const memberId of selectedIds) {
+                const sharedSecret = await getSharedSecret(memberId);
+                if (sharedSecret) {
+                   const encrypted = await encryptText(sharedSecret, jwkString);
+                   encryptedKeys.push({
+                     user: memberId,
+                     encryptedKey: encrypted
+                   });
+                }
+             }
+          }
+        } catch (err) {
+          console.error('[E2EE] Failed to encrypt group key for new members:', err);
+        }
+      }
+
+      const res = await dispatch(addGroupMembers({ conversationId, memberIds: selectedIds, encryptedKeys })).unwrap();
       // res is the updated conversation
       if (onMembersAdded) onMembersAdded();
       onClose();

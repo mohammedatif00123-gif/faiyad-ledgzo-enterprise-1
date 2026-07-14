@@ -7,7 +7,6 @@ import { useDispatch, useSelector } from 'react-redux';
 import { logoutUser } from '../../store/slices/authSlice';
 import { useNavigate } from 'react-router-dom';
 import { NotificationCenter } from '../ui/NotificationCenter';
-import { GlobalSearch } from '../ui/GlobalSearch';
 
 export function TopNav({ toggleSidebar, onOpenCommandPalette }) {
   const dispatch = useDispatch();
@@ -27,10 +26,10 @@ export function TopNav({ toggleSidebar, onOpenCommandPalette }) {
           <span className="sr-only">Toggle Sidebar</span>
         </Button>
         <div className="hidden md:flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ent-primary)] text-white font-bold">
-            L
+          <div className="bg-white p-1.5 rounded-lg flex items-center gap-2">
+            <img src="/ledgzo-books.jpg" alt="Ledgzo Books" className="w-6 object-contain" />
+            <img src="/ledgzo-logo.jpg" alt="Ledgzo Logo" className="w-20 object-contain" />
           </div>
-          <span className="text-lg font-bold tracking-tight text-[var(--ent-text-primary)]">Ledgzo</span>
           <span className="ml-2 rounded-full bg-[var(--ent-primary)]/10 px-2 py-0.5 text-xs font-medium text-[var(--ent-primary)]">
             Production
           </span>
@@ -38,15 +37,7 @@ export function TopNav({ toggleSidebar, onOpenCommandPalette }) {
       </div>
 
       <div className="flex flex-1 items-center justify-end gap-2 md:gap-4">
-        <GlobalSearch />
 
-        <Button
-          variant="outline"
-          className="relative h-9 justify-start rounded-[0.5rem] bg-background text-sm font-normal text-muted-foreground shadow-none pr-12 w-40 lg:hidden"
-          onClick={onOpenCommandPalette}
-        >
-          <span className="inline-flex">Search...</span>
-        </Button>
 
         <NotificationCenter />
 
@@ -71,16 +62,6 @@ export function TopNav({ toggleSidebar, onOpenCommandPalette }) {
                 </p>
               </div>
             </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <Settings className="mr-2 h-4 w-4" />
-              <span>Settings</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout}>
-              <LogOut className="mr-2 h-4 w-4" />
-              <span>Log out</span>
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

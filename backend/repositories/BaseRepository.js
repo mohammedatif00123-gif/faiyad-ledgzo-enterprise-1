@@ -24,7 +24,7 @@ class BaseRepository {
 
   async updateById(id, data) {
     return await this.model.findByIdAndUpdate(id, data, {
-      new: true,
+      returnDocument: 'after',
       runValidators: true
     });
   }

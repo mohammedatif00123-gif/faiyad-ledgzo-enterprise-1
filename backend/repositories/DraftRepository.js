@@ -10,7 +10,7 @@ class DraftRepository extends BaseRepository {
     return await this.model.findOneAndUpdate(
       { user: userId, conversation: conversationId, parentMessage: parentMessage || null },
       { content },
-      { new: true, upsert: true }
+      { returnDocument: 'after', upsert: true }
     );
   }
 

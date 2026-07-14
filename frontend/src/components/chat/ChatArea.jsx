@@ -16,11 +16,13 @@ import { groupMessagesByDay } from '../../utils/messageUtils';
 import api from '../../services/api';
 import { setMessages, setActiveThread, addMessage, removeMessagesBulk } from '../../store/slices/chatSlice';
 import { X, Search, Trash2, Forward as ForwardIcon, Pin } from 'lucide-react';
+import { useE2EE } from '../../context/E2EEContext';
 
 export function ChatArea({ socket }) {
   const dispatch = useDispatch();
   const { user } = useSelector(state => state.auth);
   const { conversations, activeConversation, messages, activeThread, typing: stateTyping = {} } = useSelector(state => state.chat);
+  const { encryptDirectMessage, encryptGroupMessage, isReady: isE2EEReady } = useE2EE();
   const parentRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -49,6 +51,15 @@ export function ChatArea({ socket }) {
   const typingUsers = Object.keys(convTyping).filter(uid => convTyping[uid] && uid !== user.id);
   const isTyping = typingUsers.length > 0;
 
+  const partnerIdForDirect = (conv, currentUserId) => {
+    if (!conv || !conv.participants) return null;
+    const p = conv.participants.find(pt => {
+      const pId = typeof pt === 'object' ? (pt._id || pt.id) : pt;
+      return pId !== currentUserId;
+    });
+    return p ? (typeof p === 'object' ? (p._id || p.id) : p) : null;
+  };
+
   const getTypingText = () => {
     if (typingUsers.length === 0) return '';
     if (conversation?.type === 'direct') return `${conversation.name} is typing...`;
@@ -68,8 +79,30 @@ export function ChatArea({ socket }) {
   useEffect(() => {
     if (activeConversation && !messages[activeConversation]) {
       api.get(`/messages/conversation/${activeConversation}`)
-        .then(res => {
-          dispatch(setMessages({ conversationId: activeConversation, messages: res.data.data }));
+        .then(async (res) => {
+          let fetchedMessages = res.data.data || [];
+          
+          if (isE2EEReady && fetchedMessages.length > 0) {
+            const currentUserId = user?._id || user?.id;
+            fetchedMessages = await Promise.all(fetchedMessages.map(async (msg) => {
+              if (msg.isEncrypted && msg.iv) {
+                try {
+                   const senderId = typeof msg.sender === 'object' ? (msg.sender._id || msg.sender.id) : msg.sender;
+                   // Decrypt everything for now. Optimistic UI is only for new messages.
+                   if (conversation?.type === 'direct') {
+                      msg.content = await decryptDirectMessage(msg.content, msg.iv, senderId === currentUserId ? partnerIdForDirect(conversation, currentUserId) : senderId);
+                   } else if (conversation?.type === 'channel' || conversation?.type === 'group') {
+                      msg.content = await decryptGroupMessage(msg.content, msg.iv, activeConversation);
+                   }
+                } catch (err) {
+                  msg.content = '🔒 [Encrypted Message - Decryption Failed]';
+                }
+              }
+              return msg;
+            }));
+          }
+          
+          dispatch(setMessages({ conversationId: activeConversation, messages: fetchedMessages }));
         })
         .catch(console.error);
     }
@@ -111,30 +144,65 @@ export function ChatArea({ socket }) {
     });
   }, [currentMessages, activeConversation, socket, user.id]);
 
-  const handleSend = (payload) => {
+  const handleSend = async (payload) => {
     if (!socket || !activeConversation) return;
+
+    let contentToEmit = payload.content;
+    let isEncrypted = false;
+    let ivToEmit = null;
+
+    if (isE2EEReady && contentToEmit) {
+      if (conversation?.type === 'direct') {
+        const partnerId = partnerIdForDirect(conversation, user._id || user.id);
+
+        if (partnerId) {
+          try {
+            const encRes = await encryptDirectMessage(contentToEmit, partnerId);
+            contentToEmit = encRes.ciphertext;
+            ivToEmit = encRes.iv;
+            isEncrypted = true;
+          } catch (err) {
+            console.error('[E2EE] Direct Message Encryption failed:', err);
+            return; // Enforce E2EE
+          }
+        }
+      } else if (conversation?.type === 'channel' || conversation?.type === 'group') {
+        try {
+          const encRes = await encryptGroupMessage(contentToEmit, activeConversation);
+          contentToEmit = encRes.ciphertext;
+          ivToEmit = encRes.iv;
+          isEncrypted = true;
+        } catch (err) {
+          console.error('[E2EE] Group Message Encryption failed:', err);
+          return; // Enforce E2EE
+        }
+      }
+    }
 
     const tempId = 'temp_' + Date.now();
     const optimisticMsg = {
       _id: tempId,
       conversation: activeConversation,
-      content: payload.content,
+      content: payload.content, // keep plaintext in optimistic UI
       attachments: payload.attachments || [],
       messageType: payload.messageType || 'text',
       sender: user,
       createdAt: new Date().toISOString(),
       parentMessage: replyTo ? replyTo._id : null,
-      status: 'sent'
+      status: 'sent',
+      isEncrypted
     };
 
     dispatch(addMessage({ conversationId: activeConversation, message: optimisticMsg }));
 
     socket.emit('sendMessage', {
       conversationId: activeConversation,
-      content: payload.content,
+      content: contentToEmit,
       attachments: payload.attachments || [],
       messageType: payload.messageType || 'text',
-      parentMessage: replyTo ? replyTo._id : null
+      parentMessage: replyTo ? replyTo._id : null,
+      isEncrypted,
+      iv: ivToEmit
     });
     setReplyTo(null);
   };

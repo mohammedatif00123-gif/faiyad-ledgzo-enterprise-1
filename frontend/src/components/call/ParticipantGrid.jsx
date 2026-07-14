@@ -1,9 +1,11 @@
 import React, { useEffect, useRef } from 'react';
-import { MicOff, User, Hand } from 'lucide-react';
+import { MicOff, User, Hand, Loader2 } from 'lucide-react';
 import { getAvatarUrl } from '../../utils/avatar';
+import { useSpeechDetection } from '../../hooks/useSpeechDetection';
 
 const VideoTile = ({ stream, isLocal, userDetails, state, label }) => {
   const videoRef = useRef(null);
+  const isSpeaking = useSpeechDetection(stream);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -14,7 +16,7 @@ const VideoTile = ({ stream, isLocal, userDetails, state, label }) => {
   const hasVideo = stream?.getVideoTracks().some(track => track.enabled);
 
   return (
-    <div className={`relative w-full h-full bg-black/50 rounded-2xl overflow-hidden border ${state?.speaking ? 'border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)]' : 'border-white/10'}`}>
+    <div className={`relative w-full h-full bg-black/50 rounded-2xl overflow-hidden border ${(state?.speaking || isSpeaking) ? 'border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)]' : 'border-white/10'}`}>
       
       {/* Video Element */}
       <video
@@ -35,6 +37,14 @@ const VideoTile = ({ stream, isLocal, userDetails, state, label }) => {
               <span className="text-4xl text-white/50 font-medium">{userDetails?.firstName?.[0] || '?'}</span>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Reconnecting Overlay */}
+      {(state?.connectionState === 'disconnected' || state?.connectionState === 'failed') && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
+          <Loader2 className="w-8 h-8 text-white animate-spin mb-2" />
+          <span className="text-white text-sm font-medium">Reconnecting...</span>
         </div>
       )}
 

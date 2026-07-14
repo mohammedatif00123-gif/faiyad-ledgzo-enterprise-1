@@ -2,10 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Signal, Minimize } from 'lucide-react';
 import { useWebRTC } from '../../hooks/useWebRTC';
-import { endCall, setActiveCall, updateParticipantState } from '../../store/slices/callSlice';
+import { endCall, setActiveCall, updateParticipantState, addCallParticipant } from '../../store/slices/callSlice';
 import api from '../../services/api';
 
 import { CallToolbar } from './CallToolbar';
+import { ChatArea } from '../chat/ChatArea';
+import { setActiveConversation } from '../../store/slices/chatSlice';
 import { ParticipantsDrawer } from './ParticipantsDrawer';
 import { VideoSettingsModal } from './VideoSettingsModal';
 import { ParticipantGrid } from './ParticipantGrid';
@@ -25,6 +27,7 @@ export function VideoCallPage({ socket }) {
   
   const [showParticipants, setShowParticipants] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeScreenShareId, setActiveScreenShareId] = useState(null); // Which user is sharing
   const [screenShareStream, setScreenShareStream] = useState(null); // Local screen share stream
@@ -76,15 +79,7 @@ export function VideoCallPage({ socket }) {
     }
   }, [isReady, activeCall?.callType, activeCall?.isInitiator]);
 
-  // Duration timer
-  useEffect(() => {
-    if (activeCall?.status === 'Connected') {
-      const interval = setInterval(() => {
-        setDuration(prev => prev + 1);
-      }, 1000);
-      return () => clearInterval(interval);
-    }
-  }, [activeCall?.status]);
+
 
   // Clean up screen share stream if call ends externally
   useEffect(() => {
@@ -103,11 +98,7 @@ export function VideoCallPage({ socket }) {
 
     const onOffer = async (data) => {
       if (data.callId === activeCall?.callId) {
-        const currentParticipants = activeCall.participants || [];
-        const nextParticipants = normalizeParticipantIds([...currentParticipants, data.from]);
-        if (JSON.stringify(nextParticipants) !== JSON.stringify(normalizeParticipantIds(currentParticipants))) {
-          dispatch(setActiveCall({ participants: nextParticipants }));
-        }
+        dispatch(addCallParticipant(data.from));
         await handleOffer(data.offer, data.from);
       }
     };
@@ -122,11 +113,7 @@ export function VideoCallPage({ socket }) {
 
     const onPeerJoined = (data) => {
       if (data.callId === activeCall?.callId) {
-        const currentParticipants = activeCall.participants || [];
-        const nextParticipants = normalizeParticipantIds([...currentParticipants, data.joinedUserId]);
-        if (JSON.stringify(nextParticipants) !== JSON.stringify(normalizeParticipantIds(currentParticipants))) {
-          dispatch(setActiveCall({ participants: nextParticipants }));
-        }
+        dispatch(addCallParticipant(data.joinedUserId));
         handlePeerJoined(data.joinedUserId);
       }
     };
@@ -179,6 +166,24 @@ export function VideoCallPage({ socket }) {
       return () => clearInterval(interval);
     }
   }, [activeCall?.status]);
+
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ignore if typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      if (e.key.toLowerCase() === 'm') {
+        handleToggleMute();
+      } else if (e.key.toLowerCase() === 'v') {
+        handleToggleVideo();
+      } else if (e.key === 'Escape') {
+        handleEndCall();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMuted, isVideoEnabled, activeCall]);
 
   const handleEndCall = () => {
     console.log('📞 Ending call intentionally');
@@ -261,12 +266,24 @@ export function VideoCallPage({ socket }) {
     return 'text-red-500';
   };
 
+  const handleToggleChat = () => {
+    if (!showChat && activeCall?.conversationId) {
+      dispatch(setActiveConversation(activeCall.conversationId));
+    }
+    setShowChat(!showChat);
+    // Auto-close participants if chat opens, on small screens to save space
+    if (!showChat && showParticipants) {
+      setShowParticipants(false);
+    }
+  };
+
   if (!activeCall || activeCall.status === 'Ringing' || activeCall.status === 'Ended' || activeCall.status === 'Rejected' || activeCall.callType === 'voice') {
     return null;
   }
   // Render logic: Grid vs Screen Share
   const allParticipants = [user.id, ...targetUserIds];
   const isScreenShareActive = !!activeScreenShareId;
+  const allParticipantDetails = { ...participantsDetails, [user.id]: user };
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-gray-950 text-white overflow-hidden animate-in fade-in duration-300">
@@ -313,7 +330,7 @@ export function VideoCallPage({ socket }) {
             remoteStreams={remoteMediaStreams}
             localStream={localMediaStream}
             localUserId={user.id}
-            participantDetails={participantsDetails}
+            participantDetails={allParticipantDetails}
             participantStates={participantStates}
           />
         ) : (
@@ -322,7 +339,7 @@ export function VideoCallPage({ socket }) {
             localStream={localMediaStream}
             remoteStreams={remoteMediaStreams}
             participantStates={participantStates}
-            participantDetails={participantsDetails}
+            participantDetails={allParticipantDetails}
             localUserId={user.id}
           />
         )}
@@ -332,8 +349,17 @@ export function VideoCallPage({ socket }) {
           isOpen={showParticipants} 
           onClose={() => setShowParticipants(false)}
           activeCall={activeCall}
-          participantDetails={participantsDetails}
+          participantDetails={allParticipantDetails}
         />
+
+        {/* Chat Drawer */}
+        {showChat && (
+          <div className="w-80 md:w-96 border-l border-white/10 bg-[var(--ent-background)] flex flex-col h-full z-10 animate-in slide-in-from-right duration-300 shrink-0">
+            <div className="flex-1 overflow-hidden relative">
+              <ChatArea socket={socket} />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Toolbar */}
@@ -347,8 +373,11 @@ export function VideoCallPage({ socket }) {
         onToggleScreenShare={handleToggleScreenShare}
         onToggleHandRaise={handleToggleHandRaise}
         onOpenSettings={() => setShowSettings(true)}
-        onToggleParticipants={() => setShowParticipants(!showParticipants)}
-        onToggleChat={() => {}} // Could slide out chat
+        onToggleParticipants={() => {
+          setShowParticipants(!showParticipants);
+          if (!showParticipants && showChat) setShowChat(false);
+        }}
+        onToggleChat={handleToggleChat}
         onToggleFullscreen={toggleFullscreen}
         onEndCall={handleEndCall}
       />

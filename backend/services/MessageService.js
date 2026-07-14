@@ -23,6 +23,8 @@ class MessageService {
       threadRoot: data.threadRoot || null,
       isForwarded: data.isForwarded || false,
       forwardSource: data.forwardSource || null,
+      isEncrypted: data.isEncrypted || false,
+      iv: data.iv || null,
       status: 'sent',
       scheduledFor: data.scheduledFor || null,
       mentions: data.mentions || []

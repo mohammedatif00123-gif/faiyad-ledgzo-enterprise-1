@@ -14,7 +14,7 @@ class PresenceRepository {
     return await Presence.findOneAndUpdate(
       { user: userId },
       updateData,
-      { new: true, upsert: true }
+      { returnDocument: 'after', upsert: true }
     );
   }
 

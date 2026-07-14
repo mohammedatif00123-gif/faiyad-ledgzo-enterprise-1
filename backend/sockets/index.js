@@ -53,6 +53,10 @@ const initSocket = (server) => {
     await UserRepository.updateOnlineStatus(socket.user.id, socket.id, true);
     const PresenceService = require('../services/PresenceService');
     await PresenceService.setStatus(socket.user.id, 'Online', io);
+    
+    const User = require('../models/User');
+    await User.findByIdAndUpdate(socket.user.id, { presenceStatus: 'online' });
+    io.emit('user_status_changed', { userId: socket.user.id, presenceStatus: 'online' });
 
     // Join user's personal room for direct notifications
     socket.join(`user_${socket.user.id}`);
@@ -83,7 +87,19 @@ const initSocket = (server) => {
           ...data,
           senderId: socket.user.id
         });
+        
+        // Emit to the conversation room
         io.to(`room_${data.conversationId}`).emit('newMessage', message);
+
+        // Also emit to individual members in case they haven't joined the room yet
+        const ConversationMember = require('../models/ConversationMember');
+        const members = await ConversationMember.find({ conversation: data.conversationId });
+        members.forEach(member => {
+           if (member.user.toString() !== socket.user.id) {
+             io.to(`user_${member.user.toString()}`).emit('newMessage', message);
+           }
+        });
+
       } catch (err) {
         console.error('Socket sendMessage error:', err);
         socket.emit('error', 'Error sending message');
@@ -148,6 +164,34 @@ const initSocket = (server) => {
         });
       } catch (err) {
         console.error('Socket markConversationAsRead error:', err);
+      }
+    });
+
+    // --- Presence / Status Events ---
+    socket.on('status_update', async (data) => {
+      try {
+        const User = require('../models/User');
+        const update = {
+          presenceStatus: data.status
+        };
+        
+        if (data.status === 'away' || data.status === 'in-break' || data.status === 'in-meeting' || data.status === 'busy') {
+          update.awayReason = data.reason || data.status;
+          update.awaySince = new Date();
+        } else {
+          update.awayReason = null;
+          update.awaySince = null;
+        }
+
+        await User.findByIdAndUpdate(socket.user.id, update);
+
+        // Broadcast to everyone
+        io.emit('user_status_changed', {
+          userId: socket.user.id,
+          ...update
+        });
+      } catch (error) {
+        console.error('Socket status_update error:', error);
       }
     });
 
@@ -243,9 +287,13 @@ const initSocket = (server) => {
       
       const PresenceService = require('../services/PresenceService');
       const CallService = require('../services/CallService');
+      const User = require('../models/User');
       
       await PresenceService.setStatus(socket.user.id, 'Offline', io);
       await CallService.handleUserDisconnect(socket.user.id);
+      
+      await User.findByIdAndUpdate(socket.user.id, { presenceStatus: 'offline' });
+      io.emit('user_status_changed', { userId: socket.user.id, presenceStatus: 'offline' });
     });
   });
 

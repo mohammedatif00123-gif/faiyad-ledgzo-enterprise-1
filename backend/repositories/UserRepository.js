@@ -14,7 +14,7 @@ class UserRepository extends BaseRepository {
     return await this.model.findByIdAndUpdate(
       userId,
       { $inc: { loginAttempts: 1 } },
-      { new: true }
+      { returnDocument: 'after' }
     );
   }
 
@@ -22,7 +22,7 @@ class UserRepository extends BaseRepository {
     return await this.model.findByIdAndUpdate(
       userId,
       { $set: { loginAttempts: 0 } },
-      { new: true }
+      { returnDocument: 'after' }
     );
   }
 
@@ -30,7 +30,7 @@ class UserRepository extends BaseRepository {
     return await this.model.findByIdAndUpdate(
       userId,
       { $set: { socketId, isOnline } },
-      { new: true }
+      { returnDocument: 'after' }
     );
   }
 }

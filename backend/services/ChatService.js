@@ -2,6 +2,7 @@ const Conversation = require('../models/Conversation');
 const ConversationMember = require('../models/ConversationMember');
 const Message = require('../models/Message');
 const ReadReceipt = require('../models/ReadReceipt');
+const GroupKey = require('../models/GroupKey');
 const User = require('../models/User');
 
 class ChatService {
@@ -104,7 +105,7 @@ class ChatService {
   }
 
   async createChannel(userId, name, memberIds = [], extraData = {}) {
-    const { description = '', avatar = null, visibility = 'private' } = extraData;
+    const { description = '', avatar = null, visibility = 'private', encryptedKeys = [] } = extraData;
     const conversation = await Conversation.create({ 
       type: 'channel', 
       name, 
@@ -126,6 +127,15 @@ class ChatService {
     
     const receipts = members.map(m => ({ conversation: conversation._id, user: m.user }));
     await ReadReceipt.create(receipts);
+
+    if (encryptedKeys && encryptedKeys.length > 0) {
+      const keysToInsert = encryptedKeys.map(ek => ({
+        conversation: conversation._id,
+        user: ek.user,
+        encryptedKey: ek.encryptedKey
+      }));
+      await GroupKey.create(keysToInsert);
+    }
 
     await this._createSystemMessage(conversation._id, userId, 'GROUP_CREATED', 'Created this group');
 
@@ -181,12 +191,12 @@ class ChatService {
 
   async updateGroupInfo(userId, conversationId, updates) {
     await this._checkAdmin(userId, conversationId);
-    const conversation = await Conversation.findByIdAndUpdate(conversationId, updates, { new: true });
+    const conversation = await Conversation.findByIdAndUpdate(conversationId, updates, { returnDocument: 'after' });
     await this._createSystemMessage(conversationId, userId, 'GROUP_RENAMED', `Group info was updated`);
     return conversation;
   }
 
-  async addGroupMembers(userId, conversationId, memberIds) {
+  async addGroupMembers(userId, conversationId, memberIds, encryptedKeys = []) {
     await this._checkAdmin(userId, conversationId);
     
     // Filter out users already in group
@@ -200,6 +210,15 @@ class ChatService {
       
       const receiptsToCreate = newIds.map(id => ({ conversation: conversationId, user: id }));
       await ReadReceipt.insertMany(receiptsToCreate);
+
+      if (encryptedKeys && encryptedKeys.length > 0) {
+        const keysToInsert = encryptedKeys.map(ek => ({
+          conversation: conversationId,
+          user: ek.user,
+          encryptedKey: ek.encryptedKey
+        }));
+        await GroupKey.insertMany(keysToInsert);
+      }
 
       await Conversation.findByIdAndUpdate(conversationId, { $inc: { memberCount: newIds.length } });
       

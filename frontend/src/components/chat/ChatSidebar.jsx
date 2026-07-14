@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { setActiveConversation, setConversations, removeConversation, updateConversation, leaveGroup } from '../../store/slices/chatSlice';
 import { useNavigate } from 'react-router-dom';
-import { Hash, User, Plus, Users, MoreVertical, LogOut, Phone, Pin, BellOff, ArrowLeft } from 'lucide-react';
+import { Hash, User, Plus, Users, MoreVertical, LogOut, Phone, Pin, BellOff, ArrowLeft, Video, Coffee, Briefcase, Calendar } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { CreateGroupModal } from './CreateGroupModal';
 import { CallHistoryDrawer } from '../call/CallHistoryDrawer';
@@ -42,6 +42,40 @@ export function ChatSidebar({ socket }) {
       return new Date(convMessages[convMessages.length - 1].createdAt).getTime();
     }
     return new Date(conv.updatedAt || conv.createdAt || 0).getTime();
+  };
+
+  const getStatusBadge = (statusStr) => {
+    if (!statusStr) return null;
+    const s = statusStr.toLowerCase();
+    if (s.includes('call') || s.includes('video') || s.includes('screen') || s.includes('meeting')) {
+      return (
+        <span className="ml-2 flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded-md border border-blue-500/20 whitespace-nowrap" title="In Meeting">
+          <Video className="w-2.5 h-2.5" /> In Meet
+        </span>
+      );
+    }
+    if (s.includes('away') || s.includes('break')) {
+      return (
+        <span className="ml-2 flex items-center gap-1 text-[10px] text-yellow-600 dark:text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded-md border border-yellow-500/20 whitespace-nowrap" title="Away from Desk">
+          <Coffee className="w-2.5 h-2.5" /> Away
+        </span>
+      );
+    }
+    if (s.includes('busy')) {
+      return (
+        <span className="ml-2 flex items-center gap-1 text-[10px] text-purple-600 dark:text-purple-500 bg-purple-500/10 px-1.5 py-0.5 rounded-md border border-purple-500/20 whitespace-nowrap" title="Busy (Do not disturb)">
+          <Briefcase className="w-2.5 h-2.5" /> Busy
+        </span>
+      );
+    }
+    if (s.includes('leave')) {
+      return (
+        <span className="ml-2 flex items-center gap-1 text-[10px] text-red-600 dark:text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded-md border border-red-500/20 whitespace-nowrap" title="On Leave Today">
+          <Calendar className="w-2.5 h-2.5" /> On Leave
+        </span>
+      );
+    }
+    return null;
   };
 
   const sortedConversations = [...conversations].sort((a, b) => {
@@ -138,11 +172,7 @@ export function ChatSidebar({ socket }) {
               )}
             </div>
             <span className="truncate font-semibold">{conv.name}</span>
-            {conv.type === 'direct' && conv.partnerId && ['In Call', 'In Video Call', 'Screen Sharing'].includes(directory.find(u => u._id === conv.partnerId)?.status) && (
-              <span className="ml-2 flex items-center gap-1 text-[10px] text-yellow-600 dark:text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded-md border border-yellow-500/20 whitespace-nowrap">
-                <Phone className="w-2.5 h-2.5" /> In a meet
-              </span>
-            )}
+            {conv.type === 'direct' && conv.partnerId && getStatusBadge(directory.find(u => u._id === conv.partnerId)?.status)}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             {conv.isMuted && <BellOff className="w-3.5 h-3.5 opacity-50" />}
@@ -272,11 +302,7 @@ export function ChatSidebar({ socket }) {
                     )}
                   </div>
                   <span className="truncate font-medium">{colleague.firstName} {colleague.lastName}</span>
-                  {['In Call', 'In Video Call', 'Screen Sharing'].includes(colleague.status) && (
-                    <span className="ml-2 flex items-center gap-1 text-[10px] text-yellow-600 dark:text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded-md border border-yellow-500/20 whitespace-nowrap">
-                      <Phone className="w-2.5 h-2.5" /> In a meet
-                    </span>
-                  )}
+                  {getStatusBadge(colleague.status)}
                 </div>
               </button>
             ))}

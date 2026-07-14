@@ -31,6 +31,8 @@ const messageSchema = new mongoose.Schema({
   isEdited: { type: Boolean, default: false },
   isDeleted: { type: Boolean, default: false }, // Soft delete (deleted for everyone)
   deletedForMe: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Hidden for specific users
+  isEncrypted: { type: Boolean, default: false },
+  iv: { type: String }, // Base64 encoded Initialization Vector
   status: { type: String, enum: ['sent', 'delivered', 'read'], default: 'sent' },
   scheduledFor: { type: Date }
 }, {
