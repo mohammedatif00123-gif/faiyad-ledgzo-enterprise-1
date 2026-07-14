@@ -181,6 +181,7 @@ router.get('/attendance/all', async (req, res) => {
         checkInTime: att ? att.checkIn : null,
         checkOutTime: att ? att.checkOut : null,
         workHours: att && att.workHours ? att.workHours : '--',
+        breaks: att && att.breaks ? att.breaks : [],
         breakTime: att && att.breaks ? att.breaks.reduce((total, b) => total + (b.durationMinutes || 0), 0) + ' mins' : '--',
         profileImage: user.profileImage
       };
@@ -218,6 +219,7 @@ router.get('/attendance/report', async (req, res) => {
       checkIn: att.checkIn ? new Date(att.checkIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : null,
       checkOut: att.checkOut ? new Date(att.checkOut).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : null,
       workHours: att.workHours || 0,
+      breaks: att.breaks || [],
       status: att.status ? att.status.charAt(0).toUpperCase() + att.status.slice(1) : 'Absent'
     }));
 

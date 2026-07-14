@@ -283,6 +283,14 @@ const initSocket = (server) => {
     
     socket.on('disconnect', async () => {
       console.log(`User Disconnected: ${socket.user.id}`);
+      
+      // Check if user still has other active sockets connected
+      const activeSockets = await io.in(`user_${socket.user.id}`).fetchSockets();
+      if (activeSockets.length > 0) {
+        console.log(`User ${socket.user.id} still has ${activeSockets.length} active socket(s). Keeping online.`);
+        return; // Don't mark offline
+      }
+
       await UserRepository.updateOnlineStatus(socket.user.id, null, false);
       
       const PresenceService = require('../services/PresenceService');

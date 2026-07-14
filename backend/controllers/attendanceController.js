@@ -199,3 +199,43 @@ exports.getOnLeaveToday = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+// @desc    Toggle Break
+// @route   POST /api/attendance/break
+// @access  Private (Employee)
+exports.toggleBreak = async (req, res) => {
+  try {
+    const { type } = req.body;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const attendance = await Attendance.findOne({ employeeId: req.user._id, date: { $gte: today } });
+    if (!attendance || !attendance.checkIn) {
+      return res.status(400).json({ success: false, message: 'Must check in first' });
+    }
+    if (attendance.checkOut) {
+      return res.status(400).json({ success: false, message: 'Already checked out' });
+    }
+
+    const ongoingBreak = attendance.breaks.find(b => b.type === type && !b.end);
+    
+    if (ongoingBreak) {
+      ongoingBreak.end = new Date();
+      ongoingBreak.durationMinutes = Math.floor((ongoingBreak.end - ongoingBreak.start) / 60000);
+      await User.findByIdAndUpdate(req.user._id, { presenceStatus: 'online', awayReason: null });
+    } else {
+      const finishedBreak = attendance.breaks.find(b => b.type === type && b.end);
+      if (finishedBreak) {
+        return res.status(400).json({ success: false, message: 'Break already taken today' });
+      }
+      attendance.breaks.push({ type, start: new Date() });
+      await User.findByIdAndUpdate(req.user._id, { presenceStatus: 'in-break', awayReason: type });
+    }
+
+    await attendance.save();
+    res.status(200).json({ success: true, data: attendance });
+  } catch (error) {
+    console.error('Break Error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};

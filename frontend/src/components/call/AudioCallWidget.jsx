@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { motion } from 'framer-motion';
-import { PhoneOff, Mic, MicOff, MoreHorizontal, Settings, Users, Signal, Volume2, Phone, UserPlus } from 'lucide-react';
+import { PhoneOff, Mic, MicOff, MoreHorizontal, Settings, Users, Signal, Volume2, Phone, UserPlus, MonitorUp } from 'lucide-react';
 import { useWebRTC } from '../../hooks/useWebRTC';
 import { endCall, setActiveCall, updateParticipantState, addCallParticipant } from '../../store/slices/callSlice';
 import api from '../../services/api';
@@ -11,6 +11,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ParticipantTile } from './VoiceCallPage';
 import { AddParticipantModal } from './AddParticipantModal';
 import { VideoSettingsModal } from './VideoSettingsModal';
+import { ScreenShareView } from './ScreenShareView';
 
 export function AudioCallWidget({ socket }) {
   const dispatch = useDispatch();
@@ -29,12 +30,15 @@ export function AudioCallWidget({ socket }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isSpeaker, setIsSpeaker] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [activeScreenShareId, setActiveScreenShareId] = useState(null);
+  const [screenShareStream, setScreenShareStream] = useState(null);
 
   const { 
     initWebRTC, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined,
-    cleanup, forceCleanup, isReady, remoteMediaStreams,
-    toggleMute
-  } = useWebRTC(socket, activeCall?.callId, user.id, true);
+    cleanup, forceCleanup, isReady, remoteMediaStreams, localMediaStream,
+    toggleMute, startScreenShare, stopScreenShare
+  } = useWebRTC(socket, activeCall?.callId, user.id);
 
   useEffect(() => {
     if (targetUserIds.length > 0) {
@@ -139,6 +143,35 @@ export function AudioCallWidget({ socket }) {
     });
   };
 
+  const handleToggleScreenShare = async () => {
+    if (isScreenSharing) {
+      stopScreenShare();
+      setIsScreenSharing(false);
+      setActiveScreenShareId(null);
+      setScreenShareStream(null);
+    } else {
+      const displayStream = await startScreenShare();
+      if (displayStream) {
+        setIsScreenSharing(true);
+        setActiveScreenShareId(user.id);
+        setScreenShareStream(displayStream);
+        
+        displayStream.getVideoTracks()[0].onended = () => {
+          setIsScreenSharing(false);
+          setActiveScreenShareId(null);
+          setScreenShareStream(null);
+        };
+      }
+    }
+  };
+
+  const remoteScreenShareId = Object.keys(remoteMediaStreams).find(
+    id => remoteMediaStreams[id] && remoteMediaStreams[id].getVideoTracks().length > 0
+  );
+  
+  const currentScreenShareId = isScreenSharing ? user.id : remoteScreenShareId;
+  const activeStream = isScreenSharing ? screenShareStream : (remoteScreenShareId ? remoteMediaStreams[remoteScreenShareId] : null);
+
   const formatDuration = (seconds) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
     const s = (seconds % 60).toString().padStart(2, '0');
@@ -180,20 +213,33 @@ export function AudioCallWidget({ socket }) {
         </div>
 
         {/* Main Call Info / Grid */}
-        <div className="flex-1 w-full max-w-6xl p-6 flex items-center justify-center">
-          <div className="grid gap-6 w-full grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-            {targetUserIds.map(id => {
-              const state = participantStates?.[id] || {};
-              const stream = remoteMediaStreams[id];
-              const details = participantsDetails[id];
-              return (
-                <ParticipantTile 
-                  key={id} userDetails={details} stream={stream}
-                  isMuted={state.muted} isSpeaking={state.speaking} connectionState={state.connectionState} label="Connecting..."
-                />
-              );
-            })}
-          </div>
+        <div className={`flex-1 w-full max-w-6xl p-6 flex min-h-0 overflow-hidden ${currentScreenShareId && activeStream ? 'flex-col' : 'items-center justify-center'}`}>
+          {currentScreenShareId && activeStream ? (
+            <ScreenShareView 
+              screenStream={activeStream}
+              presenterId={currentScreenShareId}
+              participantDetails={{...participantsDetails, [user.id]: user}}
+              participantStates={participantStates}
+              participants={[user.id, ...targetUserIds]}
+              remoteStreams={remoteMediaStreams}
+              localStream={localMediaStream}
+              localUserId={user.id}
+            />
+          ) : (
+            <div className="grid gap-6 w-full grid-cols-2 md:grid-cols-3 lg:grid-cols-4 overflow-y-auto max-h-full">
+              {targetUserIds.map(id => {
+                const state = participantStates?.[id] || {};
+                const stream = remoteMediaStreams[id];
+                const details = participantsDetails[id];
+                return (
+                  <ParticipantTile 
+                    key={id} userDetails={details} stream={stream}
+                    isMuted={state.muted} isSpeaking={state.speaking} connectionState={state.connectionState} label="Connecting..."
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Controls */}
@@ -201,6 +247,15 @@ export function AudioCallWidget({ socket }) {
           <button onClick={handleToggleMute} className={`p-5 rounded-full transition-all ${isMuted ? 'bg-white/90 text-black' : 'bg-white/10 text-white hover:bg-white/20'}`} title={isMuted ? "Unmute" : "Mute"}>
             {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
           </button>
+          
+          <button 
+            onClick={handleToggleScreenShare}
+            className={`p-5 rounded-full transition-all ${isScreenSharing ? 'bg-green-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+            title={isScreenSharing ? "Stop Screen Share" : "Share Screen"}
+          >
+            <MonitorUp className="w-6 h-6" />
+          </button>
+
           <button onClick={() => setShowAddModal(true)} className="p-5 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all" title="Add Participant">
             <UserPlus className="w-6 h-6" />
           </button>

@@ -19,6 +19,21 @@ function useDebounce(value, delay) {
   return debouncedValue;
 }
 
+const formatMinsToReadable = (mins) => {
+  if (!mins || isNaN(Number(mins)) || Number(mins) === 0) return '0 min';
+  const total = Number(mins);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h > 0 && m > 0) return `${h} hr ${m} min`;
+  if (h > 0) return `${h} hr`;
+  return `${m} min`;
+};
+
+const formatHoursToReadable = (hours) => {
+  if (!hours || hours === '--') return '--';
+  return formatMinsToReadable(Math.round(Number(hours) * 60));
+};
+
 export default function AdminDashboard() {
   const [employees, setEmployees] = useState([]);
   const [stats, setStats] = useState({
@@ -364,8 +379,24 @@ export default function AdminDashboard() {
                           ? new Date(emp.checkOutTime || emp.checkOut).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) 
                           : '--'}
                       </td>
-                      <td className="px-6 py-3 font-medium">{typeof emp.workHours === 'number' || !isNaN(Number(emp.workHours)) && emp.workHours !== '--' ? Number(emp.workHours).toFixed(1) + 'h' : (emp.workHours || '--')}</td>
-                      <td className="px-6 py-3 text-muted-foreground">{emp.breakTime || emp.breakTaken || '--'}</td>
+                      <td className="px-6 py-3 font-medium text-emerald-600">{formatHoursToReadable(emp.workHours)}</td>
+                      <td className="px-6 py-3 text-muted-foreground">
+                        {emp.breaks && emp.breaks.length > 0 ? (
+                          <div className="flex flex-col gap-1 text-xs">
+                            {emp.breaks.map((b, i) => {
+                              const duration = b.durationMinutes ? `${b.durationMinutes} min` : 'Ongoing';
+                              const isLongShortBreak = b.type.includes('short-break') && b.durationMinutes > 15;
+                              return (
+                                <span key={i} className={`capitalize ${isLongShortBreak ? 'text-red-500 font-bold' : ''}`}>
+                                  {b.type.replace('-', ' ')}: <span className="font-semibold">{duration}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          typeof emp.breakTime === 'number' ? formatMinsToReadable(emp.breakTime) : typeof emp.breakTime === 'string' && emp.breakTime.includes('mins') ? formatMinsToReadable(parseInt(emp.breakTime) || 0) : (emp.breakTime || emp.breakTaken || '--')
+                        )}
+                      </td>
                     </tr>
                   )
                 })}

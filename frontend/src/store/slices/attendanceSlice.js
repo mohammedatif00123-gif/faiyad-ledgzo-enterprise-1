@@ -28,6 +28,15 @@ export const getTodayAttendance = createAsyncThunk('attendance/today', async (_,
   }
 });
 
+export const toggleBreak = createAsyncThunk('attendance/toggleBreak', async (type, { rejectWithValue }) => {
+  try {
+    const response = await api.post('/attendance/break', { type });
+    return response.data;
+  } catch (error) {
+    return rejectWithValue(error.response?.data?.message || 'Failed to toggle break');
+  }
+});
+
 const attendanceSlice = createSlice({
   name: 'attendance',
   initialState: {
@@ -58,6 +67,15 @@ const attendanceSlice = createSlice({
       })
       .addCase(getTodayAttendance.fulfilled, (state, action) => {
         state.today = action.payload.data;
+      })
+      .addCase(toggleBreak.pending, (state) => { state.loading = true; })
+      .addCase(toggleBreak.fulfilled, (state, action) => {
+        state.loading = false;
+        state.today = action.payload.data;
+      })
+      .addCase(toggleBreak.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
       });
   },
 });

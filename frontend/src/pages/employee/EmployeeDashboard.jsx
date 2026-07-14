@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { motion } from 'framer-motion';
 import { Clock, Coffee, LogOut, CheckCircle, Calendar, Plus, CalendarDays, History } from 'lucide-react';
-import { checkIn, checkOut, getTodayAttendance } from '../../store/slices/attendanceSlice';
+import { checkIn, checkOut, getTodayAttendance, toggleBreak } from '../../store/slices/attendanceSlice';
 import { updateUser } from '../../store/slices/authSlice';
 import { getMyLeaves } from '../../store/slices/leaveSlice';
 import { Button } from '../../components/ui/Button';
@@ -19,6 +19,12 @@ export default function EmployeeDashboard() {
   const [isAwayModalOpen, setIsAwayModalOpen] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [onLeaveToday, setOnLeaveToday] = useState([]);
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     dispatch(getTodayAttendance());
@@ -44,6 +50,61 @@ export default function EmployeeDashboard() {
       await dispatch(checkOut()).unwrap();
       dispatch(updateUser({ presenceStatus: 'offline' }));
     } catch (e) {}
+  };
+
+  const handleToggleBreak = async (type) => {
+    try {
+      await dispatch(toggleBreak(type)).unwrap();
+    } catch (e) {}
+  };
+
+  const getBreakStatus = (type) => {
+    if (!today?.breaks) return { taken: false, ongoing: false };
+    const finished = today.breaks.find(b => b.type === type && b.end);
+    const ongoing = today.breaks.find(b => b.type === type && !b.end);
+    return { taken: !!finished, ongoing: !!ongoing };
+  };
+
+  const lunchStatus = getBreakStatus('lunch');
+  const shortBreakStatus = getBreakStatus('short-break-1');
+  
+  const getLiveBreakTimer = (type) => {
+    if (!today?.breaks) return null;
+    const ongoing = today.breaks.find(b => b.type === type && !b.end);
+    if (!ongoing || !ongoing.start) return null;
+    const diffSecs = Math.floor((now - new Date(ongoing.start)) / 1000);
+    const h = Math.floor(diffSecs / 3600);
+    const m = Math.floor((diffSecs % 3600) / 60);
+    const s = diffSecs % 60;
+    if (h > 0) return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const getCompletedBreakDuration = (type) => {
+    if (!today?.breaks) return null;
+    const finished = today.breaks.find(b => b.type === type && b.end);
+    if (!finished) return null;
+    return formatMinsToReadable(finished.durationMinutes || 0);
+  };
+
+  const totalBreakMinutes = today?.breaks?.reduce((acc, b) => {
+    if (b.durationMinutes) return acc + b.durationMinutes;
+    if (b.start && !b.end) return acc + Math.floor((now - new Date(b.start)) / 60000);
+    return acc;
+  }, 0) || 0;
+
+  const formatMinsToReadable = (mins) => {
+    if (!mins) return '0 min';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h > 0 && m > 0) return `${h} hr ${m} min`;
+    if (h > 0) return `${h} hr`;
+    return `${m} min`;
+  };
+
+  const formatHoursToReadable = (hours) => {
+    if (!hours) return '--:--';
+    return formatMinsToReadable(Math.round(Number(hours) * 60));
   };
 
   const getStatusColor = (status) => {
@@ -136,12 +197,12 @@ export default function EmployeeDashboard() {
           <div className="bg-card p-5 rounded-2xl border shadow-sm flex flex-col justify-center items-center text-center">
             <Coffee className="text-orange-500 mb-2 opacity-80" size={28} />
             <p className="text-sm text-muted-foreground">Break Taken</p>
-            <p className="text-xl font-bold">0 mins</p>
+            <p className="text-xl font-bold">{formatMinsToReadable(totalBreakMinutes)}</p>
           </div>
           <div className="bg-card p-5 rounded-2xl border shadow-sm flex flex-col justify-center items-center text-center">
             <History className="text-emerald-500 mb-2 opacity-80" size={28} />
             <p className="text-sm text-muted-foreground">Work Hours</p>
-            <p className="text-xl font-bold">{today?.workHours || '0.0'} hr</p>
+            <p className="text-xl font-bold">{formatHoursToReadable(today?.workHours)}</p>
           </div>
         </motion.div>
 
@@ -154,11 +215,23 @@ export default function EmployeeDashboard() {
         >
           <h3 className="font-semibold mb-4 text-lg">Quick Actions</h3>
           <div className="space-y-3">
-            <Button variant="secondary" className="w-full justify-start" disabled={!today?.checkIn || today?.checkOut}>
-              <Coffee className="mr-3 h-4 w-4 text-orange-500" /> Take Lunch Break
+            <Button 
+              variant={lunchStatus.ongoing ? "default" : "secondary"} 
+              className={`w-full justify-start ${lunchStatus.ongoing ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}`}
+              disabled={!today?.checkIn || today?.checkOut || lunchStatus.taken || loading}
+              onClick={() => handleToggleBreak('lunch')}
+            >
+              <Coffee className={`mr-3 h-4 w-4 ${lunchStatus.ongoing ? 'text-white' : 'text-orange-500'}`} /> 
+              {lunchStatus.ongoing ? `End Lunch Break (${getLiveBreakTimer('lunch')} / 60 min)` : (lunchStatus.taken ? `Lunch Break Taken (${getCompletedBreakDuration('lunch')})` : 'Take Lunch Break (60 min)')}
             </Button>
-            <Button variant="secondary" className="w-full justify-start" disabled={!today?.checkIn || today?.checkOut}>
-              <Coffee className="mr-3 h-4 w-4 text-blue-500" /> Short Break
+            <Button 
+              variant={shortBreakStatus.ongoing ? "default" : "secondary"} 
+              className={`w-full justify-start ${shortBreakStatus.ongoing ? 'bg-blue-500 hover:bg-blue-600 text-white' : ''}`}
+              disabled={!today?.checkIn || today?.checkOut || shortBreakStatus.taken || loading}
+              onClick={() => handleToggleBreak('short-break-1')}
+            >
+              <Coffee className={`mr-3 h-4 w-4 ${shortBreakStatus.ongoing ? 'text-white' : 'text-blue-500'}`} /> 
+              {shortBreakStatus.ongoing ? `End Short Break (${getLiveBreakTimer('short-break-1')} / 15 min)` : (shortBreakStatus.taken ? `Short Break Taken (${getCompletedBreakDuration('short-break-1')})` : 'Take Short Break (15 min)')}
             </Button>
             <Button variant="secondary" className="w-full justify-start bg-primary/10 text-primary hover:bg-primary/20" onClick={() => setIsLeaveModalOpen(true)}>
               <Plus className="mr-3 h-4 w-4" /> Apply Leave

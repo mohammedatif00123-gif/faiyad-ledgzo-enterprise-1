@@ -18,6 +18,16 @@ function useDebounce(value, delay) {
   return debouncedValue;
 }
 
+const formatHoursToReadable = (hours) => {
+  if (!hours) return '0 min';
+  const totalMins = Math.round(Number(hours) * 60);
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  if (h > 0 && m > 0) return `${h} hr ${m} min`;
+  if (h > 0) return `${h} hr`;
+  return `${m} min`;
+};
+
 export default function AdminAttendanceManagement() {
   const [activeTab, setActiveTab] = useState('reports');
   
@@ -218,7 +228,8 @@ export default function AdminAttendanceManagement() {
                           <th className="px-4 py-3 font-medium">Dept</th>
                           <th className="px-4 py-3 font-medium">Date</th>
                           <th className="px-4 py-3 font-medium">In / Out</th>
-                          <th className="px-4 py-3 font-medium">Hrs</th>
+                          <th className="px-4 py-3 font-medium">Work Hrs</th>
+                          <th className="px-4 py-3 font-medium">Breaks Taken</th>
                           <th className="px-4 py-3 font-medium">Status</th>
                         </tr>
                       </thead>
@@ -234,7 +245,24 @@ export default function AdminAttendanceManagement() {
                               <td className="px-4 py-3 text-muted-foreground">{r.department || 'N/A'}</td>
                               <td className="px-4 py-3">{r.date}</td>
                               <td className="px-4 py-3">{r.checkIn || '--'} - {r.checkOut || '--'}</td>
-                              <td className="px-4 py-3">{typeof r.workHours === 'number' ? r.workHours.toFixed(1) : (r.workHours || 0)}h</td>
+                              <td className="px-4 py-3 font-medium text-emerald-600">{formatHoursToReadable(r.workHours)}</td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                {r.breaks && r.breaks.length > 0 ? (
+                                  <div className="flex flex-col gap-1">
+                                    {r.breaks.map((b, i) => {
+                                      const duration = b.durationMinutes ? `${b.durationMinutes} min` : 'Ongoing';
+                                      const isLongShortBreak = b.type.includes('short-break') && b.durationMinutes > 15;
+                                      return (
+                                        <span key={i} className={`capitalize ${isLongShortBreak ? 'text-red-500 font-bold' : ''}`}>
+                                          {b.type.replace('-', ' ')}: <span className="font-semibold">{duration}</span>
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  '--'
+                                )}
+                              </td>
                               <td className="px-4 py-3">
                                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                                   r.status === 'Present' ? 'bg-emerald-100 text-emerald-700' : 

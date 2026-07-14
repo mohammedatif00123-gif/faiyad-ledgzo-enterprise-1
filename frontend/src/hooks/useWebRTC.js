@@ -999,6 +999,19 @@ export function useWebRTC(socket, callId, myUserId) {
         return;
       }
 
+      // Ensure we can receive video if the offer includes it (e.g. for screen sharing in an audio call)
+      if (offer.sdp && offer.sdp.includes('m=video') && pc.getTransceivers) {
+        const hasVideoTransceiver = pc.getTransceivers().some(t => t.receiver && t.receiver.track && t.receiver.track.kind === 'video');
+        if (!hasVideoTransceiver) {
+          try {
+            pc.addTransceiver('video', { direction: 'recvonly' });
+            console.log('[useWebRTC] Added video transceiver for incoming video in handleOffer');
+          } catch (e) {
+            console.error('[useWebRTC] Failed to add video transceiver:', e);
+          }
+        }
+      }
+
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       console.log('[useWebRTC] Remote description set');
 
