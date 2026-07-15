@@ -15,6 +15,10 @@ const groupKeySchema = new mongoose.Schema({
   encryptedKey: {
     type: Object, // { iv, ciphertext }
     required: true
+  },
+  encryptedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   }
 }, { timestamps: true });
 

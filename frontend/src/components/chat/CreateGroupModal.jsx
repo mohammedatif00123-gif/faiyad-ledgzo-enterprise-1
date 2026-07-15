@@ -72,7 +72,8 @@ export function CreateGroupModal({ onClose }) {
           const jwk = await exportAESKey(groupKey);
           const jwkString = JSON.stringify(jwk);
 
-          const allMembers = [...selectedIds, user._id || user.id];
+          const currentUserId = user._id || user.id;
+          const allMembers = Array.from(new Set([...selectedIds, currentUserId]));
           
           for (const memberId of allMembers) {
              const sharedSecret = await getSharedSecret(memberId);

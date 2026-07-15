@@ -118,7 +118,7 @@ const chatSlice = createSlice({
         // Remove temp message if it exists
         if (!message._id.toString().startsWith('temp_')) {
           state.threadMessages[message.threadRoot] = state.threadMessages[message.threadRoot].filter(
-            m => !(m._id.toString().startsWith('temp_') && m.content === message.content && m.sender?._id === message.sender?._id)
+            m => !(m._id.toString().startsWith('temp_') && m.content === message.content && (m.sender?._id || m.sender?.id) === (message.sender?._id || message.sender?.id))
           );
         }
 
@@ -133,7 +133,7 @@ const chatSlice = createSlice({
         // Remove temp message if it exists
         if (!message._id.toString().startsWith('temp_')) {
           state.messages[conversationId] = state.messages[conversationId].filter(
-            m => !(m._id.toString().startsWith('temp_') && m.content === message.content && m.sender?._id === message.sender?._id)
+            m => !(m._id.toString().startsWith('temp_') && m.content === message.content && (m.sender?._id || m.sender?.id) === (message.sender?._id || message.sender?.id))
           );
         }
 

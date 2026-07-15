@@ -69,9 +69,14 @@ export function useDecryptedMedia(attachment, message) {
         const jwk = JSON.parse(jwkString);
         const fileKey = await importAESKey(jwk);
 
-        const res = await api.get(attachment.fileUrl, { responseType: 'arraybuffer' });
+        const response = await fetch(attachment.fileUrl, {
+          mode: 'cors',
+          credentials: 'omit'
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
         
-        const decryptedBuffer = await decryptFile(fileKey, attachment.metadata.fileIv, res.data);
+        const decryptedBuffer = await decryptFile(fileKey, attachment.metadata.fileIv, arrayBuffer);
         
         let mimeType = 'application/octet-stream';
         if (attachment.fileType === 'image') mimeType = 'image/jpeg';

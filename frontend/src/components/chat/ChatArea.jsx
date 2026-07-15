@@ -22,7 +22,7 @@ export function ChatArea({ socket }) {
   const dispatch = useDispatch();
   const { user } = useSelector(state => state.auth);
   const { conversations, activeConversation, messages, activeThread, typing: stateTyping = {} } = useSelector(state => state.chat);
-  const { encryptDirectMessage, encryptGroupMessage, isReady: isE2EEReady } = useE2EE();
+  const { encryptDirectMessage, encryptGroupMessage, decryptDirectMessage, decryptGroupMessage, isReady: isE2EEReady } = useE2EE();
   const parentRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -35,13 +35,13 @@ export function ChatArea({ socket }) {
   const [selectedMessages, setSelectedMessages] = useState([]);
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showForwardModal, setShowForwardModal] = useState(false);
 
   const conversation = conversations.find(c => c._id === activeConversation);
   const currentMessages = messages[activeConversation] || [];
-  
+
   // Filter messages if search is active
   const displayedMessages = isSearchActive && searchQuery
     ? currentMessages.filter(m => m.content?.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -63,13 +63,13 @@ export function ChatArea({ socket }) {
   const getTypingText = () => {
     if (typingUsers.length === 0) return '';
     if (conversation?.type === 'direct') return `${conversation.name} is typing...`;
-    
+
     const names = typingUsers.map(uid => {
       const msg = currentMessages.find(m => m.sender?._id === uid);
       if (msg && msg.sender?.firstName) return msg.sender.firstName;
       return 'Someone';
     });
-    
+
     const uniqueNames = [...new Set(names)];
     if (uniqueNames.length === 1) return `${uniqueNames[0]} is typing...`;
     if (uniqueNames.length === 2) return `${uniqueNames[0]} and ${uniqueNames[1]} are typing...`;
@@ -81,27 +81,28 @@ export function ChatArea({ socket }) {
       api.get(`/messages/conversation/${activeConversation}`)
         .then(async (res) => {
           let fetchedMessages = res.data.data || [];
-          
+
           if (isE2EEReady && fetchedMessages.length > 0) {
             const currentUserId = user?._id || user?.id;
             fetchedMessages = await Promise.all(fetchedMessages.map(async (msg) => {
               if (msg.isEncrypted && msg.iv) {
                 try {
-                   const senderId = typeof msg.sender === 'object' ? (msg.sender._id || msg.sender.id) : msg.sender;
-                   // Decrypt everything for now. Optimistic UI is only for new messages.
-                   if (conversation?.type === 'direct') {
-                      msg.content = await decryptDirectMessage(msg.content, msg.iv, senderId === currentUserId ? partnerIdForDirect(conversation, currentUserId) : senderId);
-                   } else if (conversation?.type === 'channel' || conversation?.type === 'group') {
-                      msg.content = await decryptGroupMessage(msg.content, msg.iv, activeConversation);
-                   }
+                  const senderId = typeof msg.sender === 'object' ? (msg.sender._id || msg.sender.id) : msg.sender;
+                  // Decrypt everything for now. Optimistic UI is only for new messages.
+                  if (conversation?.type === 'direct') {
+                    msg.content = await decryptDirectMessage(msg.content, msg.iv, senderId === currentUserId ? partnerIdForDirect(conversation, currentUserId) : senderId);
+                  } else if (conversation?.type === 'channel' || conversation?.type === 'group') {
+                    msg.content = await decryptGroupMessage(msg.content, msg.iv, activeConversation);
+                  }
                 } catch (err) {
-                  msg.content = '🔒 [Encrypted Message - Decryption Failed]';
+                  console.error('[E2EE] Initial Fetch Decryption error:', err);
+                  msg.content = `🔒 [Decryption Failed: ${err.message}]`;
                 }
               }
               return msg;
             }));
           }
-          
+
           dispatch(setMessages({ conversationId: activeConversation, messages: fetchedMessages }));
         })
         .catch(console.error);
@@ -111,7 +112,9 @@ export function ChatArea({ socket }) {
     setSelectedMessages([]);
     setIsSearchActive(false);
     setSearchQuery('');
-  }, [activeConversation, dispatch]);
+  }, [activeConversation, dispatch, isE2EEReady]);
+
+
 
   useEffect(() => {
     if (socket && activeConversation) {
@@ -231,7 +234,7 @@ export function ChatArea({ socket }) {
   };
 
   const handleToggleSelect = (msgId) => {
-    setSelectedMessages(prev => 
+    setSelectedMessages(prev =>
       prev.includes(msgId) ? prev.filter(id => id !== msgId) : [...prev, msgId]
     );
   };
@@ -250,14 +253,14 @@ export function ChatArea({ socket }) {
     try {
       const endpoint = selectionMode === 'delete_everyone' ? '/messages/bulk-delete-everyone' : '/messages/bulk-delete-me';
       await api.post(endpoint, { messageIds: selectedMessages });
-      
+
       // Update local state optimism
       if (selectionMode === 'delete_everyone') {
         dispatch(markMessagesDeleted({ conversationId: activeConversation, messageIds: selectedMessages }));
       } else {
         dispatch(removeMessagesBulk({ conversationId: activeConversation, messageIds: selectedMessages }));
       }
-      
+
       setSelectionMode(null);
       setSelectedMessages([]);
       setShowDeleteModal(false);
@@ -288,23 +291,23 @@ export function ChatArea({ socket }) {
   return (
     <div className="flex h-full w-full bg-[#efeae2] dark:bg-[#0b141a] relative overflow-hidden" onClick={closeContextMenu}>
       <div className={`flex flex-col h-full transition-all duration-300 ${activeThread ? 'w-full sm:w-[calc(100%-24rem)]' : 'w-full'}`}>
-        
+
         {/* Bulk Action Bar overlay */}
         {selectionMode && (
           <div className="absolute top-0 left-0 w-full z-[60] bg-background border-b shadow-sm p-3 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button onClick={() => { setSelectionMode(null); setSelectedMessages([]); }} className="p-1 hover:bg-muted rounded-full">
-                <X className="w-5 h-5 text-muted-foreground"/>
+                <X className="w-5 h-5 text-muted-foreground" />
               </button>
               <span className="font-semibold">{selectedMessages.length} Selected</span>
             </div>
             <div>
-              <button 
+              <button
                 onClick={executeBulkAction}
                 disabled={selectedMessages.length === 0}
                 className="flex items-center gap-2 px-4 py-1.5 bg-primary text-primary-foreground rounded-lg disabled:opacity-50 hover:bg-primary/90"
               >
-                {selectionMode === 'forward' ? <ForwardIcon className="w-4 h-4"/> : <Trash2 className="w-4 h-4"/>}
+                {selectionMode === 'forward' ? <ForwardIcon className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
                 {selectionMode === 'forward' ? 'Forward' : 'Delete'}
               </button>
             </div>
@@ -315,33 +318,33 @@ export function ChatArea({ socket }) {
         {isSearchActive && !selectionMode && (
           <div className="absolute top-0 left-0 w-full z-[60] bg-background border-b shadow-sm p-3 flex items-center gap-3">
             <Search className="w-5 h-5 text-muted-foreground ml-2" />
-            <input 
+            <input
               autoFocus
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search messages..." 
+              placeholder="Search messages..."
               className="flex-1 bg-transparent focus:outline-none"
             />
             <span className="text-sm text-muted-foreground mr-2">{displayedMessages.length} results</span>
             <button onClick={() => { setIsSearchActive(false); setSearchQuery(''); }} className="p-1 hover:bg-muted rounded-full">
-              <X className="w-5 h-5 text-muted-foreground"/>
+              <X className="w-5 h-5 text-muted-foreground" />
             </button>
           </div>
         )}
 
-        <ChatHeader 
-          conversation={conversation} 
-          onToggleInfo={() => setShowInfo(true)} 
+        <ChatHeader
+          conversation={conversation}
+          onToggleInfo={() => setShowInfo(true)}
           onSearchClick={() => setIsSearchActive(true)}
-          socket={socket} 
+          socket={socket}
         />
         <PinnedMessagesPanel conversationId={activeConversation} />
-        
+
         {/* WhatsApp Background Pattern */}
         <div className="absolute inset-0 z-0 opacity-[0.06] dark:opacity-[0.04] pointer-events-none" style={{ backgroundImage: 'url("https://web.whatsapp.com/img/bg-chat-tile-dark_a4be512e7195b6b733d9110b408f075d.png")', backgroundRepeat: 'repeat' }}></div>
 
-        <div 
-          ref={parentRef} 
+        <div
+          ref={parentRef}
           className="flex-1 overflow-y-auto p-4 md:px-8 custom-scrollbar overflow-x-hidden relative z-10"
         >
           <div
@@ -354,7 +357,7 @@ export function ChatArea({ socket }) {
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
               const msg = displayedMessages[virtualRow.index];
               const prevMsg = virtualRow.index > 0 ? displayedMessages[virtualRow.index - 1] : null;
-              
+
               let showDayHeader = false;
               if (!prevMsg || isSearchActive) {
                 showDayHeader = !isSearchActive; // Don't show day headers in search mode
@@ -381,8 +384,8 @@ export function ChatArea({ socket }) {
                   {msg.messageType === 'system' ? (
                     <SystemMessage message={msg} />
                   ) : (
-                    <MessageBubble 
-                      message={msg} 
+                    <MessageBubble
+                      message={msg}
                       isOwn={msg.sender?._id === user.id}
                       onReply={(m) => setReplyTo(m)}
                       onForward={(m) => handleContextAction('forward', m)}
@@ -401,7 +404,7 @@ export function ChatArea({ socket }) {
               );
             })}
           </div>
-          
+
           {isTyping && !isSearchActive && (
             <div className="flex items-center gap-2 p-3 w-fit mt-2 rounded-2xl bg-white dark:bg-[#202c33] text-muted-foreground animate-in slide-in-from-bottom-2 shadow-sm">
               <div className="flex space-x-1.5 p-1">
@@ -417,15 +420,15 @@ export function ChatArea({ socket }) {
         </div>
 
         {!selectionMode && (
-          <MessageInput 
-            conversationId={activeConversation} 
-            onSend={handleSend} 
+          <MessageInput
+            conversationId={activeConversation}
+            onSend={handleSend}
             onTyping={(isTyping) => {
               if (socket && activeConversation) {
                 socket.emit('typing', { conversationId: activeConversation, isTyping });
               }
             }}
-            replyTo={replyTo} 
+            replyTo={replyTo}
             onCancelReply={() => setReplyTo(null)}
           />
         )}
@@ -445,22 +448,22 @@ export function ChatArea({ socket }) {
         />
       )}
 
-      <GroupInfoDrawer 
-        conversation={conversation} 
-        isOpen={showInfo} 
-        onClose={() => setShowInfo(false)} 
+      <GroupInfoDrawer
+        conversation={conversation}
+        isOpen={showInfo}
+        onClose={() => setShowInfo(false)}
         onSearchClick={() => { setShowInfo(false); setIsSearchActive(true); }}
       />
 
-      <DeleteModal 
-        isOpen={showDeleteModal} 
+      <DeleteModal
+        isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
         onConfirm={confirmDelete}
         mode={selectionMode}
         count={selectedMessages.length}
       />
 
-      <ForwardModal 
+      <ForwardModal
         isOpen={showForwardModal}
         onClose={() => setShowForwardModal(false)}
         onForward={confirmForward}

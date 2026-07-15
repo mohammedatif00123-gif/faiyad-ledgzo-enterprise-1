@@ -172,18 +172,18 @@ export const MessageBubble = React.memo(({
       )}
 
       <div className={`flex w-full ${isOwn ? 'justify-end' : 'justify-start'}`}>
-        <div className={`flex max-w-[70%] md:max-w-[65%] ${isOwn ? 'flex-row-reverse' : 'flex-row'} items-start gap-2 group relative`}>
+        <div className={`flex max-w-[70%] md:max-w-[65%] ${isOwn ? 'flex-row-reverse' : 'flex-row'} items-start gap-2 group relative min-w-0`}>
           
 
 
-          <div className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'} relative`}>
+          <div className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'} relative min-w-0 w-full`}>
             {!isOwn && (
                <span className="text-xs text-primary mb-1 ml-3 font-semibold">{message.sender?.firstName} {message.sender?.lastName}</span>
             )}
 
             {/* Chat Bubble */}
             <div 
-              className={`relative px-3 py-2 shadow-[var(--ent-shadow)] min-w-[80px] ${
+              className={`relative px-3 py-2 shadow-[var(--ent-shadow)] min-w-[80px] max-w-full ${
                 isOwn 
                   ? 'bg-[var(--own-bg)] text-[var(--own-text)]' 
                   : 'bg-[var(--other-bg)] text-[var(--other-text)]'
@@ -236,7 +236,7 @@ export const MessageBubble = React.memo(({
 
               <div className="flex items-end gap-3 justify-between">
                 {message.content && !['call', 'meeting'].includes(message.messageType) && (
-                  <div className="text-[14.5px] leading-snug prose prose-sm dark:prose-invert max-w-none break-words py-0.5">
+                  <div className="text-[14.5px] leading-snug prose prose-sm dark:prose-invert max-w-none break-words break-all whitespace-pre-wrap py-0.5">
                     {renderContent()}
                   </div>
                 )}

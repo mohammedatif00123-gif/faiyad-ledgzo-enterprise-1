@@ -22,7 +22,7 @@ export function AudioCallWidget({ socket }) {
   const [isMuted, setIsMuted] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
 
-  const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== user.id).map(p => p._id || p) || [];
+  const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== (user?._id || user?.id)).map(p => p._id || p) || [];
   const [participantsDetails, setParticipantsDetails] = useState({});
   const normalizeParticipantIds = (participants = []) => Array.from(new Set((participants || []).map(p => typeof p === 'string' ? p : p?._id || p).filter(Boolean)));
   const { networkQuality, participantStates } = useSelector(state => state.call);
@@ -38,7 +38,7 @@ export function AudioCallWidget({ socket }) {
     initWebRTC, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined,
     cleanup, forceCleanup, isReady, remoteMediaStreams, localMediaStream,
     toggleMute, startScreenShare, stopScreenShare
-  } = useWebRTC(socket, activeCall?.callId, user.id);
+  } = useWebRTC(socket, activeCall?.callId, (user?._id || user?.id));
 
   useEffect(() => {
     if (targetUserIds.length > 0) {
@@ -121,25 +121,22 @@ export function AudioCallWidget({ socket }) {
 
   const handleHangUp = async () => {
     console.log('📞 Ending audio call intentionally');
-    try {
-      await api.post(`/calls/${activeCall.callId}/end`);
-      socket.emit('call_end', { targetUserId: targetUserIds[0], callId: activeCall.callId });
-    } catch (err) {
-      console.error(err);
-    } finally {
-      console.log('🟡 Running useWebRTC cleanup');
-      forceCleanup();
-      console.log('🔵 Resetting Redux state');
-      dispatch(endCall());
-      console.log('📞 Call ended successfully');
+    if (activeCall?.callId) {
+      api.post(`/calls/${activeCall.callId}/end`).catch(console.error);
     }
+    console.log('🟡 Running useWebRTC cleanup');
+    forceCleanup();
+    console.log('🔵 Resetting Redux state');
+    dispatch(endCall());
+    console.log('📞 Call ended successfully');
   };
 
   const handleToggleMute = () => {
-    setIsMuted(!isMuted);
-    toggleMute();
+    const newMuted = !isMuted;
+    setIsMuted(newMuted);
+    toggleMute(newMuted);
     targetUserIds.forEach(tId => {
-      socket.emit('participant_muted', { targetUserId: tId, isMuted: !isMuted, callId: activeCall.callId });
+      socket.emit('participant_muted', { targetUserId: tId, isMuted: newMuted, callId: activeCall.callId });
     });
   };
 
@@ -153,7 +150,7 @@ export function AudioCallWidget({ socket }) {
       const displayStream = await startScreenShare();
       if (displayStream) {
         setIsScreenSharing(true);
-        setActiveScreenShareId(user.id);
+        setActiveScreenShareId((user?._id || user?.id));
         setScreenShareStream(displayStream);
         
         displayStream.getVideoTracks()[0].onended = () => {
@@ -169,7 +166,7 @@ export function AudioCallWidget({ socket }) {
     id => remoteMediaStreams[id] && remoteMediaStreams[id].getVideoTracks().length > 0
   );
   
-  const currentScreenShareId = isScreenSharing ? user.id : remoteScreenShareId;
+  const currentScreenShareId = isScreenSharing ? (user?._id || user?.id) : remoteScreenShareId;
   const activeStream = isScreenSharing ? screenShareStream : (remoteScreenShareId ? remoteMediaStreams[remoteScreenShareId] : null);
 
   const formatDuration = (seconds) => {
@@ -218,23 +215,26 @@ export function AudioCallWidget({ socket }) {
             <ScreenShareView 
               screenStream={activeStream}
               presenterId={currentScreenShareId}
-              participantDetails={{...participantsDetails, [user.id]: user}}
+              participantDetails={{...participantsDetails, [(user?._id || user?.id)]: user}}
               participantStates={participantStates}
-              participants={[user.id, ...targetUserIds]}
+              participants={[(user?._id || user?.id), ...targetUserIds]}
               remoteStreams={remoteMediaStreams}
               localStream={localMediaStream}
-              localUserId={user.id}
+              localUserId={(user?._id || user?.id)}
             />
           ) : (
             <div className="grid gap-6 w-full grid-cols-2 md:grid-cols-3 lg:grid-cols-4 overflow-y-auto max-h-full">
-              {targetUserIds.map(id => {
-                const state = participantStates?.[id] || {};
-                const stream = remoteMediaStreams[id];
-                const details = participantsDetails[id];
+              {[(user?._id || user?.id), ...targetUserIds].map(id => {
+                const isLocal = id === (user?._id || user?.id);
+                const state = isLocal ? { muted: isMuted, speaking: false, connectionState: 'connected' } : (participantStates?.[id] || {});
+                const stream = isLocal ? localMediaStream : remoteMediaStreams[id];
+                const details = isLocal ? user : participantsDetails[id];
                 return (
                   <ParticipantTile 
                     key={id} userDetails={details} stream={stream}
-                    isMuted={state.muted} isSpeaking={state.speaking} connectionState={state.connectionState} label="Connecting..."
+                    isMuted={state.muted} isSpeaking={state.speaking} connectionState={state.connectionState} 
+                    label={isLocal ? "You" : "Connecting..."}
+                    isLocal={isLocal}
                   />
                 );
               })}

@@ -32,7 +32,7 @@ class ChatService {
       
       if (conv.type === 'direct') {
         const otherMember = allMembers.find(
-          am => am.conversation.toString() === conv._id.toString() && am.user._id.toString() !== userId.toString()
+          am => am.conversation.toString() === conv._id.toString() && am.user && am.user._id.toString() !== userId.toString()
         );
         if (otherMember) {
           conv.name = `${otherMember.user.firstName} ${otherMember.user.lastName}`;
@@ -131,13 +131,14 @@ class ChatService {
     await ReadReceipt.create(receipts);
 
     if (encryptedKeys && encryptedKeys.length > 0) {
-      const keysToInsert = encryptedKeys.map(ek => ({
-        conversation: conversation._id,
-        user: ek.user,
-        encryptedKey: ek.encryptedKey
-      }));
-      await GroupKey.create(keysToInsert);
-    }
+    const keysToInsert = encryptedKeys.map(ek => ({
+      conversation: conversation._id,
+      user: ek.user,
+      encryptedKey: ek.encryptedKey,
+      encryptedBy: userId // ✅ Already correct
+    }));
+    await GroupKey.create(keysToInsert);
+  }
 
     await this._createSystemMessage(conversation._id, userId, 'GROUP_CREATED', 'Created this group');
 
@@ -213,14 +214,15 @@ class ChatService {
       const receiptsToCreate = newIds.map(id => ({ conversation: conversationId, user: id }));
       await ReadReceipt.insertMany(receiptsToCreate);
 
-      if (encryptedKeys && encryptedKeys.length > 0) {
-        const keysToInsert = encryptedKeys.map(ek => ({
-          conversation: conversationId,
-          user: ek.user,
-          encryptedKey: ek.encryptedKey
-        }));
-        await GroupKey.insertMany(keysToInsert);
-      }
+     if (encryptedKeys && encryptedKeys.length > 0) {
+    const keysToInsert = encryptedKeys.map(ek => ({
+      conversation: conversationId,
+      user: ek.user,
+      encryptedKey: ek.encryptedKey,
+      encryptedBy: userId // ✅ IMPORTANT: Who is adding the member
+    }));
+    await GroupKey.insertMany(keysToInsert);
+  }
 
       await Conversation.findByIdAndUpdate(conversationId, { $inc: { memberCount: newIds.length } });
       
@@ -271,6 +273,47 @@ class ChatService {
 
     return await Conversation.findById(conversationId);
   }
+
+ async resendGroupKey(userId, conversationId, targetUserId, encryptedKey) {
+  await this._checkAdmin(userId, conversationId);
+  
+  const targetMember = await ConversationMember.findOne({ 
+    user: targetUserId, 
+    conversation: conversationId 
+  });
+  if (!targetMember) throw new Error('Target user is not a member of this group');
+
+  await GroupKey.findOneAndUpdate(
+    { conversation: conversationId, user: targetUserId },
+    { 
+      encryptedKey, 
+      encryptedBy: userId // ✅ IMPORTANT: Who is resending the key
+    },
+    { upsert: true }
+  );
+}
+async reEncryptGroupKeys(userId, conversationId, keys) {
+  await this._checkAdmin(userId, conversationId);
+
+  await GroupKey.deleteMany({ conversation: conversationId });
+
+  const keysToInsert = keys.map(k => ({
+    conversation: conversationId,
+    user: k.userId,
+    encryptedKey: k.encryptedKey,
+    encryptedBy: userId // ✅ IMPORTANT: Admin re-encrypting
+  }));
+
+  await GroupKey.insertMany(keysToInsert);
+
+  const { getIO } = require('../sockets');
+  const io = getIO();
+  if (io) {
+    io.to(conversationId.toString()).emit('group_keys_updated', { conversationId });
+  }
+  
+  await this._createSystemMessage(conversationId, userId, 'KEYS_UPDATED', `Re-encrypted group keys for all members`);
+}
 
   async leaveGroup(userId, conversationId) {
     const membership = await ConversationMember.findOne({ user: userId, conversation: conversationId });

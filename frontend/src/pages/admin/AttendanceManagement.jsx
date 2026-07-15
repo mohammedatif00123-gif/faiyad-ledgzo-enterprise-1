@@ -243,8 +243,10 @@ export default function AdminAttendanceManagement() {
                             <tr key={r.id || idx} className="hover:bg-muted/50">
                               <td className="px-4 py-3 font-medium">{r.name || `${r.firstName} ${r.lastName}`}</td>
                               <td className="px-4 py-3 text-muted-foreground">{r.department || 'N/A'}</td>
-                              <td className="px-4 py-3">{r.date}</td>
-                              <td className="px-4 py-3">{r.checkIn || '--'} - {r.checkOut || '--'}</td>
+                              <td className="px-4 py-3">{r.date ? new Date(r.date).toLocaleDateString() : '--'}</td>
+                              <td className="px-4 py-3">
+                                {r.checkIn ? new Date(r.checkIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--'} - {r.checkOut ? new Date(r.checkOut).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--'}
+                              </td>
                               <td className="px-4 py-3 font-medium text-emerald-600">{formatHoursToReadable(r.workHours)}</td>
                               <td className="px-4 py-3 text-xs text-muted-foreground">
                                 {r.breaks && r.breaks.length > 0 ? (

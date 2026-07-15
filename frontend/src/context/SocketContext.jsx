@@ -33,10 +33,17 @@ export function SocketProvider({ children }) {
   const [socket, setSocket] = useState(null);
 
   const activeConversationRef = React.useRef(activeConversation);
+  const conversationsRef = React.useRef(conversations);
+  const e2eeRef = React.useRef({ decryptDirectMessage, decryptGroupMessage, isE2EEReady });
 
   useEffect(() => {
     activeConversationRef.current = activeConversation;
-  }, [activeConversation]);
+    conversationsRef.current = conversations;
+  }, [activeConversation, conversations]);
+
+  useEffect(() => {
+    e2eeRef.current = { decryptDirectMessage, decryptGroupMessage, isE2EEReady };
+  }, [decryptDirectMessage, decryptGroupMessage, isE2EEReady]);
 
   useEffect(() => {
     if (!accessToken || !user) return;
@@ -61,21 +68,23 @@ export function SocketProvider({ children }) {
     newSocket.on('newMessage', async (message) => {
       let decryptedContent = message.content;
       
+      const currentE2EE = e2eeRef.current;
       // Attempt decryption if encrypted
-      if (message.isEncrypted && message.iv && isE2EEReady) {
+      if (message.isEncrypted && message.iv && currentE2EE.isE2EEReady) {
         try {
           const senderId = typeof message.sender === 'object' ? (message.sender._id || message.sender.id) : message.sender;
           const currentUserId = user?._id || user?.id;
           
-          if (senderId !== currentUserId) {
-             const conv = conversations.find(c => c._id === message.conversation);
-             if (conv?.type === 'direct') {
-               decryptedContent = await decryptDirectMessage(message.content, message.iv, senderId);
-             } else if (conv?.type === 'channel' || conv?.type === 'group') {
-               decryptedContent = await decryptGroupMessage(message.content, message.iv, message.conversation);
-             }
-             message.content = decryptedContent;
+          const convs = conversationsRef.current || [];
+          const conv = convs.find(c => c._id?.toString() === message.conversation?.toString());
+          if (conv?.type === 'direct') {
+            const partnerId = conv.participants?.map(p => p._id || p).find(id => id !== currentUserId) || senderId;
+            const targetId = senderId === currentUserId ? partnerId : senderId;
+            decryptedContent = await currentE2EE.decryptDirectMessage(message.content, message.iv, targetId);
+          } else if (conv?.type === 'channel' || conv?.type === 'group') {
+            decryptedContent = await currentE2EE.decryptGroupMessage(message.content, message.iv, message.conversation);
           }
+          message.content = decryptedContent;
         } catch (err) {
           console.error('[E2EE] Failed to decrypt incoming message:', err);
           message.content = '🔒 [Encrypted Message - Decryption Failed]';

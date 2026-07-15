@@ -8,23 +8,27 @@ class EmployeeService {
    */
   async _generateEmployeeCode() {
     // Find the user with the highest employeeCode
-    const lastEmployee = await UserRepository.model.findOne({}, 'employeeCode', { sort: { employeeCode: -1 } });
+    const lastEmployee = await UserRepository.model.findOne(
+      { employeeCode: { $regex: /^LED\d+$/ } },
+      'employeeCode', 
+      { sort: { employeeCode: -1 } }
+    );
     
     if (!lastEmployee || !lastEmployee.employeeCode) {
-      return 'LEDG001';
+      return 'LED001';
     }
 
-    // Extract the number part from LEDGXXX
-    const lastNumberStr = lastEmployee.employeeCode.replace('LEDG', '');
+    // Extract the number part from LEDXXX
+    const lastNumberStr = lastEmployee.employeeCode.replace('LED', '');
     const lastNumber = parseInt(lastNumberStr, 10);
     
     if (isNaN(lastNumber)) {
       // Fallback if there's a weird format in DB
       const count = await UserRepository.count();
-      return `LEDG${String(count + 1).padStart(3, '0')}`;
+      return `LED${String(count + 1).padStart(3, '0')}`;
     }
 
-    return `LEDG${String(lastNumber + 1).padStart(3, '0')}`;
+    return `LED${String(lastNumber + 1).padStart(3, '0')}`;
   }
 
   /**

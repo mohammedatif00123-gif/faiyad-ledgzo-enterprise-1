@@ -32,7 +32,7 @@ export function VideoCallPage({ socket }) {
   const [activeScreenShareId, setActiveScreenShareId] = useState(null); // Which user is sharing
   const [screenShareStream, setScreenShareStream] = useState(null); // Local screen share stream
 
-  const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== user.id).map(p => p._id || p) || [];
+  const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== (user?._id || user?.id)).map(p => p._id || p) || [];
   const conversation = conversations.find(c => c._id === activeCall?.conversationId);
   const isGroupCall = conversation?.type === 'channel';
 
@@ -43,7 +43,7 @@ export function VideoCallPage({ socket }) {
     initWebRTC, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined,
     toggleMute, toggleVideo, startScreenShare, stopScreenShare, cleanup, forceCleanup, isReady, 
     localMediaStream, remoteMediaStreams 
-  } = useWebRTC(socket, activeCall?.callId, user.id);
+  } = useWebRTC(socket, activeCall?.callId, (user?._id || user?.id));
 
   // Fetch details
   useEffect(() => {
@@ -189,7 +189,6 @@ export function VideoCallPage({ socket }) {
     console.log('📞 Ending call intentionally');
     if (activeCall?.callId) {
       api.post(`/calls/${activeCall.callId}/end`).catch(console.error);
-      socket.emit('call_end', { targetUserId: activeCall.participants[0], callId: activeCall.callId });
     }
     if (isScreenSharing) stopScreenShare();
     console.log('🟡 Running useWebRTC cleanup');
@@ -221,7 +220,7 @@ export function VideoCallPage({ socket }) {
       const displayStream = await startScreenShare();
       if (displayStream) {
         setIsScreenSharing(true);
-        setActiveScreenShareId(user.id);
+        setActiveScreenShareId((user?._id || user?.id));
         setScreenShareStream(displayStream);
         
         displayStream.getVideoTracks()[0].onended = () => {
@@ -281,9 +280,9 @@ export function VideoCallPage({ socket }) {
     return null;
   }
   // Render logic: Grid vs Screen Share
-  const allParticipants = [user.id, ...targetUserIds];
+  const allParticipants = [(user?._id || user?.id), ...targetUserIds];
   const isScreenShareActive = !!activeScreenShareId;
-  const allParticipantDetails = { ...participantsDetails, [user.id]: user };
+  const allParticipantDetails = { ...participantsDetails, [(user?._id || user?.id)]: user };
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-gray-950 text-white overflow-hidden animate-in fade-in duration-300">
@@ -324,12 +323,12 @@ export function VideoCallPage({ socket }) {
       <div className="flex-1 w-full flex overflow-hidden relative pt-16 pb-2">
         {isScreenShareActive ? (
           <ScreenShareView 
-            screenStream={activeScreenShareId === user.id ? screenShareStream : remoteMediaStreams[activeScreenShareId]}
+            screenStream={activeScreenShareId === (user?._id || user?.id) ? screenShareStream : remoteMediaStreams[activeScreenShareId]}
             presenterId={activeScreenShareId}
             participants={allParticipants}
             remoteStreams={remoteMediaStreams}
             localStream={localMediaStream}
-            localUserId={user.id}
+            localUserId={(user?._id || user?.id)}
             participantDetails={allParticipantDetails}
             participantStates={participantStates}
           />
@@ -340,7 +339,7 @@ export function VideoCallPage({ socket }) {
             remoteStreams={remoteMediaStreams}
             participantStates={participantStates}
             participantDetails={allParticipantDetails}
-            localUserId={user.id}
+            localUserId={(user?._id || user?.id)}
           />
         )}
 

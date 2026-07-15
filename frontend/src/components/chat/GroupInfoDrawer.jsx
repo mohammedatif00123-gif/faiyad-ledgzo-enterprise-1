@@ -3,9 +3,11 @@ import { X, Users, Image as ImageIcon, Link as LinkIcon, FileText, Settings, Use
 import { useSelector, useDispatch } from 'react-redux';
 import { Avatar } from '../ui/Avatar';
 import api from '../../services/api';
-import { updateConversation, leaveGroup, removeGroupMember, updateMemberRole } from '../../store/slices/chatSlice';
+import { updateConversation, leaveGroup, removeGroupMember, updateMemberRole, removeConversation, setActiveConversation } from '../../store/slices/chatSlice';
 import { GroupCallHistory } from './GroupCallHistory';
 import { AddGroupMemberModal } from './AddGroupMemberModal';
+import { useE2EE } from '../../context/E2EEContext';
+import { exportAESKey, encryptText } from '../../utils/cryptoService';
 
 export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }) {
   const dispatch = useDispatch();
@@ -16,6 +18,7 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
   const [searchQuery, setSearchQuery] = useState('');
 
   const [showAddMember, setShowAddMember] = useState(false);
+  const { isReady: isE2EEReady, getSharedSecret, getGroupKey } = useE2EE();
 
   const fetchMembers = () => {
     if (conversation) {
@@ -41,6 +44,19 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
     }
   };
 
+  const handleDeleteGroup = async () => {
+    if (!window.confirm("Are you sure you want to delete this group? This action cannot be undone.")) return;
+    try {
+      await api.delete(`/chat/conversations/${conversation._id}`);
+      dispatch(removeConversation(conversation._id));
+      dispatch(setActiveConversation(null));
+      onClose();
+    } catch (err) {
+      console.error('Failed to delete group:', err);
+      alert(err.response?.data?.message || 'Failed to delete group');
+    }
+  };
+
   const handleRemoveMember = async (userId) => {
     try {
       await dispatch(removeGroupMember({ conversationId: conversation._id, userId })).unwrap();
@@ -60,6 +76,69 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
       alert(err);
     }
   };
+
+  const handleResendKey = async (userId) => {
+    try {
+      if (!isE2EEReady) throw new Error('E2EE not ready');
+      
+      const groupKey = await getGroupKey(conversation._id);
+      if (!groupKey) throw new Error('You do not have the group key, cannot resend.');
+      
+      const jwk = await exportAESKey(groupKey);
+      const jwkString = JSON.stringify(jwk);
+      
+      const sharedSecret = await getSharedSecret(userId);
+      if (!sharedSecret) throw new Error('Could not get shared secret with user');
+      
+      const encrypted = await encryptText(sharedSecret, jwkString);
+      
+      await api.put(`/chat/conversations/${conversation._id}/members/${userId}/key`, {
+        encryptedKey: encrypted
+      });
+      
+      alert('Group key resent successfully!');
+    } catch (error) {
+      console.error('Failed to resend key:', error);
+      alert(error.message || 'Failed to resend key');
+    }
+  };
+
+  const handleReEncryptForAll = async () => {
+    try {
+      if (!isE2EEReady) throw new Error('E2EE not ready');
+      
+      const confirmReencrypt = window.confirm('Are you sure you want to re-encrypt the group key for all members? Use this if some members cannot decrypt messages.');
+      if (!confirmReencrypt) return;
+
+      const groupKey = await getGroupKey(conversation._id);
+      if (!groupKey) throw new Error('You do not have the group key, cannot re-encrypt.');
+      
+      const jwk = await exportAESKey(groupKey);
+      const jwkString = JSON.stringify(jwk);
+      
+      const encryptedKeys = [];
+      for (const m of members) {
+        const sharedSecret = await getSharedSecret(m.user._id);
+        if (sharedSecret) {
+           const encrypted = await encryptText(sharedSecret, jwkString);
+           encryptedKeys.push({
+             userId: m.user._id,
+             encryptedKey: encrypted
+           });
+        }
+      }
+      
+      await api.put(`/chat/conversations/${conversation._id}/keys/reencrypt`, {
+        keys: encryptedKeys
+      });
+      
+      alert('Group key re-encrypted successfully for all members!');
+    } catch (error) {
+      console.error(error);
+      alert('Failed to re-encrypt: ' + error.message);
+    }
+  };
+
 
   const [activeMenuId, setActiveMenuId] = useState(null);
 
@@ -260,6 +339,7 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
                                 {m.role === 'admin' && currentUserRole === 'owner' && (
                                   <button onClick={() => { handleUpdateRole(m.user._id, 'member'); setActiveMenuId(null); }} className="w-full text-left px-4 py-2 text-sm hover:bg-[var(--ent-primary)]/10">Remove Admin</button>
                                 )}
+                                <button onClick={() => { handleResendKey(m.user._id); setActiveMenuId(null); }} className="w-full text-left px-4 py-2 text-sm hover:bg-[var(--ent-primary)]/10">Resend Encryption Key</button>
                                 <button onClick={() => { handleRemoveMember(m.user._id); setActiveMenuId(null); }} className="w-full text-left px-4 py-2 text-sm text-[var(--ent-danger)] hover:bg-[var(--ent-danger)]/10">Remove User</button>
                               </div>
                             )}
@@ -302,6 +382,19 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
                       Generate Invite Link
                     </button>
                   </div>
+                  
+                  {['owner', 'admin'].includes(currentUserRole) && (
+                    <div className="space-y-2 pt-4 border-t">
+                      <h4 className="text-xs font-bold text-muted-foreground uppercase">Security</h4>
+                      <button 
+                        onClick={handleReEncryptForAll}
+                        className="w-full text-left text-sm p-2 text-primary hover:bg-muted/30 rounded font-medium flex items-center justify-between"
+                      >
+                        Re-encrypt Group Key for All Members
+                      </button>
+                      <p className="text-xs text-muted-foreground px-2">Use this if members are seeing "Decryption Failed" errors after getting a new device.</p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -325,7 +418,12 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
       )}
 
       {!isDirect && (
-        <div className="p-4 border-t">
+        <div className="p-4 border-t space-y-2">
+          {['owner', 'admin'].includes(currentUserRole) && (
+            <button onClick={handleDeleteGroup} className="w-full flex items-center justify-center gap-2 text-destructive border border-destructive/30 hover:bg-destructive/10 p-2 rounded-md text-sm font-bold transition-colors">
+              <LogOut className="w-4 h-4" /> Delete Group
+            </button>
+          )}
           <button onClick={handleLeaveGroup} className="w-full flex items-center justify-center gap-2 text-destructive hover:bg-destructive/10 p-2 rounded-md text-sm font-bold transition-colors">
             <LogOut className="w-4 h-4" /> Leave Group
           </button>

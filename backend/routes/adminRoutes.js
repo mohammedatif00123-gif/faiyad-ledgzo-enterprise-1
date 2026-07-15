@@ -215,9 +215,9 @@ router.get('/attendance/report', async (req, res) => {
       id: att._id,
       name: att.employeeId ? `${att.employeeId.firstName} ${att.employeeId.lastName}` : 'Unknown',
       department: att.employeeId ? att.employeeId.department : 'N/A',
-      date: new Date(att.date).toLocaleDateString(),
-      checkIn: att.checkIn ? new Date(att.checkIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : null,
-      checkOut: att.checkOut ? new Date(att.checkOut).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : null,
+      date: att.date,
+      checkIn: att.checkIn,
+      checkOut: att.checkOut,
       workHours: att.workHours || 0,
       breaks: att.breaks || [],
       status: att.status ? att.status.charAt(0).toUpperCase() + att.status.slice(1) : 'Absent'
@@ -288,7 +288,24 @@ router.post('/employees', async (req, res) => {
       password = tempPassword;
     }
     
-    const employeeCode = 'EMP' + Math.floor(1000 + Math.random() * 9000);
+    // Find the user with the highest employeeCode starting with LED
+    const lastEmployee = await User.findOne(
+      { employeeCode: { $regex: /^LED\d+$/ } },
+      'employeeCode',
+      { sort: { employeeCode: -1 } }
+    );
+    
+    let employeeCode = 'LED001';
+    if (lastEmployee && lastEmployee.employeeCode) {
+      const lastNumberStr = lastEmployee.employeeCode.replace('LED', '');
+      const lastNumber = parseInt(lastNumberStr, 10);
+      if (!isNaN(lastNumber)) {
+        employeeCode = `LED${String(lastNumber + 1).padStart(3, '0')}`;
+      } else {
+        const count = await User.countDocuments();
+        employeeCode = `LED${String(count + 1).padStart(3, '0')}`;
+      }
+    }
 
     const user = await User.create({
       firstName,

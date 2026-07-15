@@ -19,6 +19,8 @@ router.put('/conversations/:conversationId/info', chatController.updateGroupInfo
 router.post('/conversations/:conversationId/members', chatController.addGroupMembers);
 router.delete('/conversations/:conversationId/members/:userId', chatController.removeGroupMember);
 router.put('/conversations/:conversationId/members/:userId/role', chatController.updateMemberRole);
+router.put('/conversations/:conversationId/members/:userId/key', chatController.resendGroupKey);
+router.put('/conversations/:conversationId/keys/reencrypt', chatController.reEncryptGroupKeys);
 router.post('/conversations/:conversationId/leave', chatController.leaveGroup);
 router.delete('/conversations/:conversationId', chatController.deleteGroup);
 

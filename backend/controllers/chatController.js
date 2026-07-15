@@ -212,6 +212,28 @@ exports.updateMemberRole = async (req, res, next) => {
   }
 };
 
+exports.resendGroupKey = async (req, res, next) => {
+  try {
+    const { conversationId, userId } = req.params;
+    const { encryptedKey } = req.body;
+    await ChatService.resendGroupKey(req.user.id, conversationId, userId, encryptedKey);
+    sendResponse(res, 200, 'Group key resent successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.reEncryptGroupKeys = async (req, res, next) => {
+  try {
+    const { conversationId } = req.params;
+    const { keys } = req.body;
+    await ChatService.reEncryptGroupKeys(req.user.id, conversationId, keys);
+    sendResponse(res, 200, 'Group keys re-encrypted successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.leaveGroup = async (req, res, next) => {
   try {
     const { conversationId } = req.params;

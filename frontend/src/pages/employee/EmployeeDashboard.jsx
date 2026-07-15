@@ -108,6 +108,7 @@ export default function EmployeeDashboard() {
   };
 
   const getStatusColor = (status) => {
+    if (!today?.checkIn || today?.checkOut) return 'bg-gray-400';
     switch(status) {
       case 'online': return 'bg-emerald-500';
       case 'away': return 'bg-yellow-500';
@@ -118,6 +119,8 @@ export default function EmployeeDashboard() {
   };
 
   const getStatusLabel = (status) => {
+    if (!today?.checkIn) return 'Offline (Not Checked In)';
+    if (today?.checkOut) return 'Offline (Shift Ended)';
     if (!status || status === 'offline') return 'Offline';
     return status.charAt(0).toUpperCase() + status.slice(1).replace('-', ' ');
   };
@@ -156,7 +159,11 @@ export default function EmployeeDashboard() {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <Button variant="outline" onClick={() => setIsAwayModalOpen(true)}>
+          <Button 
+            variant="outline" 
+            onClick={() => setIsAwayModalOpen(true)}
+            disabled={!today?.checkIn || today?.checkOut}
+          >
             Set Status
           </Button>
           {!today?.checkIn ? (

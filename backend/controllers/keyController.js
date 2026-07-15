@@ -26,8 +26,8 @@ exports.getPublicKeys = async (req, res, next) => {
   try {
     const { userId } = req.params;
     
-    // Get all public keys for the user (they might have multiple devices)
-    const keys = await PublicKey.find({ user: userId }).select('-__v');
+    // Get all public keys for the user, sorted by most recently updated
+    const keys = await PublicKey.find({ user: userId }).sort({ updatedAt: -1 }).select('-__v');
     
     sendResponse(res, 200, 'Public keys fetched successfully', keys);
   } catch (error) {
@@ -37,7 +37,7 @@ exports.getPublicKeys = async (req, res, next) => {
 
 exports.getMyPublicKeys = async (req, res, next) => {
   try {
-    const keys = await PublicKey.find({ user: req.user.id }).select('-__v');
+    const keys = await PublicKey.find({ user: req.user.id }).sort({ updatedAt: -1 }).select('-__v');
     sendResponse(res, 200, 'Public keys fetched successfully', keys);
   } catch (error) {
     next(error);
@@ -59,7 +59,7 @@ exports.getGroupKey = async (req, res, next) => {
 
     sendResponse(res, 200, 'Group key fetched successfully', {
       encryptedKey: keyDoc.encryptedKey,
-      creatorId: conversation.createdBy
+      creatorId: keyDoc.encryptedBy || conversation.createdBy
     });
   } catch (error) {
     next(error);

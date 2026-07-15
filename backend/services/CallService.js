@@ -2,7 +2,6 @@ const CallSession = require('../models/CallSession');
 const CallParticipant = require('../models/CallParticipant');
 const MessageRepository = require('../repositories/MessageRepository');
 const PresenceService = require('./PresenceService');
-const { getIO } = require('../sockets');
 const { AppError } = require('../utils/errors');
 
 class CallService {
@@ -232,39 +231,70 @@ class CallService {
 
     if (callSession.status === 'Ended' || callSession.status === 'Cancelled') return callSession;
 
-    // Mark participant as left
-    await CallParticipant.updateMany(
-      { callSession: callId, leftAt: null },
+    const isInitiator = callSession.initiatedBy.toString() === userId.toString();
+    const isCancelled = callSession.status === 'Ringing';
+
+    // Mark the specific user as left
+    await CallParticipant.findOneAndUpdate(
+      { callSession: callId, user: userId, leftAt: null },
       { $set: { leftAt: new Date(), connectionState: 'closed' } }
     );
 
-    const isCancelled = callSession.status === 'Ringing';
-    callSession.status = isCancelled ? 'Cancelled' : 'Ended';
-    callSession.endedAt = new Date();
-    callSession.endReason = isCancelled ? 'cancelled' : 'completed';
-    
-    if (callSession.answeredAt) {
-      callSession.duration = Math.floor((callSession.endedAt - callSession.answeredAt) / 1000);
-    }
+    // Get remaining active participants
+    const activeCount = await CallParticipant.countDocuments({ callSession: callId, leftAt: null });
 
-    await callSession.save();
+    // If less than 2 people left, or the initiator cancels before anyone answers
+    if (activeCount < 2 || (isCancelled && isInitiator)) {
+      // End the call for everyone
+      await CallParticipant.updateMany(
+        { callSession: callId, leftAt: null },
+        { $set: { leftAt: new Date(), connectionState: 'closed' } }
+      );
 
-    // Generate System Message
-    if (isCancelled) {
-      await this._createSystemMessage(callSession.conversation, callSession.initiatedBy, '📞 Call cancelled');
-    } else {
-      const mins = Math.floor(callSession.duration / 60);
-      const secs = callSession.duration % 60;
-      await this._createSystemMessage(callSession.conversation, callSession.initiatedBy, `📞 Voice call ended. Duration: ${mins}m ${secs}s`);
-    }
+      callSession.status = isCancelled ? 'Cancelled' : 'Ended';
+      callSession.endedAt = new Date();
+      callSession.endReason = isCancelled ? 'cancelled' : 'completed';
 
-    // Reset Presence for all participants
-    const io = getIO();
-    for (const pId of callSession.participants) {
-      if (io) {
-        io.to(`user_${pId.toString()}`).emit('call_end', { callId });
+      if (callSession.answeredAt) {
+        callSession.duration = Math.floor((callSession.endedAt - callSession.answeredAt) / 1000);
       }
-      await PresenceService.setStatus(pId, 'Online', io);
+
+      await callSession.save();
+
+      // Generate System Message
+      if (isCancelled) {
+        await this._createSystemMessage(callSession.conversation, callSession.initiatedBy, '📞 Call cancelled');
+      } else {
+        const mins = Math.floor(callSession.duration / 60);
+        const secs = callSession.duration % 60;
+        await this._createSystemMessage(callSession.conversation, callSession.initiatedBy, `📞 Voice call ended. Duration: ${mins}m ${secs}s`);
+      }
+
+      // Reset Presence for all participants
+      const { getIO } = require('../sockets');
+      const io = getIO();
+      for (const pId of callSession.participants) {
+        if (io) {
+          io.to(`user_${pId.toString()}`).emit('call_end', { callId });
+        }
+        await PresenceService.setStatus(pId, 'Online', io);
+      }
+    } else {
+      // Call continues for remaining participants
+      const { getIO } = require('../sockets');
+      const io = getIO();
+      if (io) {
+        // Emit call_end to the user who left
+        io.to(`user_${userId.toString()}`).emit('call_end', { callId });
+
+        // Notify others that someone left
+        for (const pId of callSession.participants) {
+          if (pId.toString() !== userId.toString()) {
+            io.to(`user_${pId.toString()}`).emit('participant_left', { callId, userId });
+          }
+        }
+      }
+      await PresenceService.setStatus(userId, 'Online', io);
     }
 
     return callSession;
@@ -294,7 +324,7 @@ class CallService {
   async handleUserDisconnect(userId) {
     // Find all active call participations for this user
     const activeParticipations = await CallParticipant.find({ user: userId, leftAt: null });
-    
+
     for (const participation of activeParticipations) {
       participation.leftAt = new Date();
       participation.connectionState = 'closed';
@@ -302,7 +332,7 @@ class CallService {
 
       // Check remaining participants
       const callIdObj = participation.callSession;
-      
+
       const callSessionDoc = await CallSession.findById(callIdObj);
       if (callSessionDoc) {
         // Generate System Message
@@ -312,7 +342,7 @@ class CallService {
       }
 
       const remaining = await CallParticipant.countDocuments({ callSession: callIdObj, leftAt: null });
-      
+
       if (remaining < 2) {
         // End the call since less than 2 people are left
         await this.endCall(callIdObj, userId);
@@ -336,7 +366,8 @@ class CallService {
       messageType: 'system',
       systemAction: 'call_log'
     });
-    
+
+    const { getIO } = require('../sockets');
     const io = getIO();
     if (io) {
       const populatedMsg = await MessageRepository.model.findById(msg._id)

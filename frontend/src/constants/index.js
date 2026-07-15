@@ -3,6 +3,7 @@ export const ROLES = {
   EMPLOYEE: 'Employee',
 };
 
+
 export const STATUSES = {
   ACTIVE: 'Active',
   INACTIVE: 'Inactive',

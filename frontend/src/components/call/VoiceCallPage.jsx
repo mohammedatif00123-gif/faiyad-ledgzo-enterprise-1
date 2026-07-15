@@ -33,9 +33,9 @@ export const ParticipantTile = ({ userDetails, stream, isMuted, isSpeaking, labe
         )}
       </div>
       <div className="text-center">
-        <h3 className="font-medium text-lg">
+        <h3 className="font-medium text-lg text-white">
           {userDetails ? `${userDetails.firstName} ${userDetails.lastName}` : label}
-          {isLocal && ' (You)'}
+          {isLocal ? ' (You)' : ''}
         </h3>
         <p className="text-white/60 text-xs flex items-center justify-center gap-1">
           {(connectionState === 'disconnected' || connectionState === 'failed') ? (
@@ -66,7 +66,7 @@ export function VoiceCallPage({ socket }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   
-  const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== user.id).map(p => p._id || p) || [];
+  const targetUserIds = activeCall?.participants?.filter(p => (p._id || p) !== (user?._id || user?.id)).map(p => p._id || p) || [];
   const conversation = conversations.find(c => c._id === activeCall?.conversationId);
   const isGroupCall = conversation?.type === 'channel';
 
@@ -77,7 +77,7 @@ export function VoiceCallPage({ socket }) {
   const { 
     initWebRTC, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined,
     toggleMute, cleanup, isReady, remoteMediaStreams, localMediaStream, startScreenShare, stopScreenShare
-  } = useWebRTC(socket, activeCall?.callId, user.id);
+  } = useWebRTC(socket, activeCall?.callId, (user?._id || user?.id));
 
   // Fetch details for all remote participants
   useEffect(() => {
@@ -173,7 +173,6 @@ export function VoiceCallPage({ socket }) {
   const handleEndCall = () => {
     if (activeCall?.callId) {
       api.post(`/calls/${activeCall.callId}/end`).catch(console.error);
-      socket.emit('call_end', { targetUserId: activeCall.participants[0], callId: activeCall.callId }); // Actually it should emit to room or individual
     }
     cleanup();
     dispatch(endCall());
@@ -257,8 +256,8 @@ export function VoiceCallPage({ socket }) {
       {/* Main Call Info / Grid */}
       <div className="flex-1 w-full max-w-6xl p-6 flex items-center justify-center">
         <div className={`grid gap-6 w-full ${targetUserIds.length > 0 ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 max-w-sm'}`}>
-          {[user.id, ...targetUserIds].map(id => {
-            const isLocal = id === user.id;
+          {[(user?._id || user?.id), ...targetUserIds].map(id => {
+            const isLocal = id === (user?._id || user?.id);
             const state = isLocal ? { muted: isMuted, speaking: false, connectionState: 'connected' } : (participantStates[id] || {});
             const stream = isLocal ? localMediaStream : remoteMediaStreams[id];
             const details = isLocal ? user : participantsDetails[id];
