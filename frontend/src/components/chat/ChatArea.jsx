@@ -14,7 +14,7 @@ import { DeleteModal } from './DeleteModal';
 import { ForwardModal } from './ForwardModal';
 import { groupMessagesByDay } from '../../utils/messageUtils';
 import api from '../../services/api';
-import { setMessages, setActiveThread, addMessage, removeMessagesBulk } from '../../store/slices/chatSlice';
+import { setMessages, setActiveThread, addMessage, removeMessagesBulk, markMessagesDeleted } from '../../store/slices/chatSlice';
 import { X, Search, Trash2, Forward as ForwardIcon, Pin } from 'lucide-react';
 import { useE2EE } from '../../context/E2EEContext';
 
@@ -252,7 +252,11 @@ export function ChatArea({ socket }) {
       await api.post(endpoint, { messageIds: selectedMessages });
       
       // Update local state optimism
-      dispatch(removeMessagesBulk({ conversationId: activeConversation, messageIds: selectedMessages }));
+      if (selectionMode === 'delete_everyone') {
+        dispatch(markMessagesDeleted({ conversationId: activeConversation, messageIds: selectedMessages }));
+      } else {
+        dispatch(removeMessagesBulk({ conversationId: activeConversation, messageIds: selectedMessages }));
+      }
       
       setSelectionMode(null);
       setSelectedMessages([]);

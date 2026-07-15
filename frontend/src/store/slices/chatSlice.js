@@ -79,6 +79,15 @@ const chatSlice = createSlice({
       const updatedConv = action.payload;
       state.conversations = state.conversations.map(c => c._id === updatedConv._id ? { ...c, ...updatedConv } : c);
     },
+    updatePartnerStatus: (state, action) => {
+      const { userId, presenceStatus, awayReason } = action.payload;
+      state.conversations = state.conversations.map(c => {
+        if (c.type === 'direct' && c.partnerId === userId) {
+          return { ...c, partnerStatus: presenceStatus, partnerAwayReason: awayReason };
+        }
+        return c;
+      });
+    },
     removeConversation: (state, action) => {
       state.conversations = state.conversations.filter(c => c._id !== action.payload);
       if (state.activeConversation === action.payload) {
@@ -173,9 +182,22 @@ const chatSlice = createSlice({
       if (state.messages[conversationId]) {
         state.messages[conversationId] = state.messages[conversationId].filter(m => !messageIds.includes(m._id));
       }
-      // Also clean up threadMessages if any matches
       Object.keys(state.threadMessages).forEach(rootId => {
         state.threadMessages[rootId] = state.threadMessages[rootId].filter(m => !messageIds.includes(m._id));
+      });
+    },
+    markMessagesDeleted: (state, action) => {
+      const { conversationId, messageIds } = action.payload;
+      if (!Array.isArray(messageIds)) return;
+      if (state.messages[conversationId]) {
+        state.messages[conversationId] = state.messages[conversationId].map(msg =>
+          messageIds.includes(msg._id) ? { ...msg, isDeleted: true, content: '', attachments: [] } : msg
+        );
+      }
+      Object.keys(state.threadMessages).forEach(rootId => {
+        state.threadMessages[rootId] = state.threadMessages[rootId].map(msg =>
+          messageIds.includes(msg._id) ? { ...msg, isDeleted: true, content: '', attachments: [] } : msg
+        );
       });
     },
     setThreadMessages: (state, action) => {
@@ -246,8 +268,11 @@ const chatSlice = createSlice({
 });
 
 export const { 
-  setConversations, updateConversation, removeConversation, setActiveConversation, setActiveThread, 
-  setMessages, addMessage, updateMessage, removeMessage, removeMessagesBulk, setThreadMessages,
+  setConversations, updateConversation,
+  updatePartnerStatus,
+  removeConversation,
+  setActiveConversation, setActiveThread, 
+  setMessages, addMessage, updateMessage, removeMessage, removeMessagesBulk, markMessagesDeleted, setThreadMessages,
   setTyping, 
   setPinnedMessages, addPinnedMessage, removePinnedMessage,
   setBookmarks, addBookmark, removeBookmark,

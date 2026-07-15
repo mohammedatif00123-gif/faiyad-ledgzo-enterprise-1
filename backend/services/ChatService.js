@@ -22,7 +22,7 @@ class ChatService {
     // Populate direct message partner details manually for UI
     const convIds = memberships.map(m => m.conversation._id);
     const allMembers = await ConversationMember.find({ conversation: { $in: convIds } })
-      .populate('user', 'firstName lastName avatar companyEmail role');
+      .populate('user', 'firstName lastName avatar companyEmail role presenceStatus awayReason');
 
     const result = memberships.map(m => {
       const conv = m.conversation.toObject();
@@ -38,6 +38,8 @@ class ChatService {
           conv.name = `${otherMember.user.firstName} ${otherMember.user.lastName}`;
           conv.avatar = otherMember.user.avatar;
           conv.partnerId = otherMember.user._id;
+          conv.partnerStatus = otherMember.user.presenceStatus;
+          conv.partnerAwayReason = otherMember.user.awayReason;
         }
       }
       return conv;

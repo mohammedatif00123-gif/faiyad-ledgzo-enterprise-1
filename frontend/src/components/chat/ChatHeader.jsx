@@ -144,6 +144,22 @@ export function ChatHeader({ conversation, onToggleInfo, onSearchClick, socket }
               )}
             </div>
           )}
+          {conversation.type === 'direct' && (
+            <div className="text-xs text-muted-foreground flex items-center gap-1">
+              {typingUsers.length > 0 ? (
+                <span className="text-primary animate-pulse italic">typing...</span>
+              ) : (
+                <>
+                  <span className="capitalize">
+                    {conversation.partnerStatus === 'in-break' ? 'In Break' : (conversation.partnerStatus || 'Offline')}
+                  </span>
+                  {conversation.partnerStatus === 'in-break' && conversation.partnerAwayReason && (
+                    <span className="italic text-orange-500 ml-1">- {conversation.partnerAwayReason}</span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

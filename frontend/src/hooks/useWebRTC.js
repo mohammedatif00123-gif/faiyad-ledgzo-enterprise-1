@@ -740,7 +740,9 @@ export function useWebRTC(socket, callId, myUserId) {
       peerConnections.current.delete(targetUserId);
     }
 
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+    const pc = new RTCPeerConnection({
+      ...ICE_SERVERS
+    });
     peerConnections.current.set(targetUserId, pc);
 
     // E2EE Setup for WebRTC Insertable Streams
@@ -765,66 +767,25 @@ export function useWebRTC(socket, callId, myUserId) {
         console.error('[WebRTC E2EE] Failed to get key', err);
       }
     }
-
-    const setupSenderTransform = (sender) => {
-      if (!e2eeKeyRef.current) return;
-      if (typeof sender.createEncodedStreams === 'function') {
-        try {
-          const { readable, writable } = sender.createEncodedStreams();
-          const transformStream = new TransformStream({
-            transform: async (chunk, controller) => {
-              // Minimal E2EE transform for demonstration
-              // In production, use SFrame or a WebWorker with WASM for performance
-              try {
-                // Pass-through without mutating to avoid corrupting Opus frames
-                // Native DTLS-SRTP handles encryption
-              } catch (e) {}
-              controller.enqueue(chunk);
-            }
-          });
-          readable.pipeThrough(transformStream).pipeTo(writable);
-        } catch (e) {
-          console.error('[WebRTC E2EE] Sender transform failed', e);
-        }
-      }
-    };
-
-    const setupReceiverTransform = (receiver) => {
-      if (!e2eeKeyRef.current) return;
-      if (typeof receiver.createEncodedStreams === 'function') {
-        try {
-          const { readable, writable } = receiver.createEncodedStreams();
-          const transformStream = new TransformStream({
-            transform: async (chunk, controller) => {
-              try {
-                // Pass-through
-              } catch (e) {}
-              controller.enqueue(chunk);
-            }
-          });
-          readable.pipeThrough(transformStream).pipeTo(writable);
-        } catch (e) {
-          console.error('[WebRTC E2EE] Receiver transform failed', e);
-        }
-      }
-    };
+    // Transforms removed for native WebRTC pipeline
 
     if (localStream.current) {
       localStream.current.getAudioTracks().forEach(track => {
-        const sender = pc.addTrack(track, localStream.current);
-        setupSenderTransform(sender);
+        pc.addTrack(track, localStream.current);
         console.log('[useWebRTC] Added track for:', targetUserId, track.kind);
       });
 
       const outgoingVideoTrack = screenStreamRef.current?.getVideoTracks()[0] || localStream.current.getVideoTracks()[0];
       if (outgoingVideoTrack) {
-        const sender = pc.addTrack(outgoingVideoTrack, localStream.current);
-        setupSenderTransform(sender);
+        pc.addTrack(outgoingVideoTrack, localStream.current);
         console.log('[useWebRTC] Added outgoing video track for:', targetUserId, outgoingVideoTrack.kind);
       }
     }
 
+    pc._initialNegotiationDone = isInitiator;
+
     pc.onnegotiationneeded = () => {
+      if (!pc._initialNegotiationDone) return;
       void scheduleNegotiation(targetUserId, pc);
     };
 
@@ -867,10 +828,6 @@ export function useWebRTC(socket, callId, myUserId) {
       console.log('[useWebRTC] Received track from:', targetUserId, event.track?.kind);
       const incomingTracks = event.streams?.[0]?.getTracks?.() || [event.track].filter(Boolean);
 
-      if (event.receiver) {
-         setupReceiverTransform(event.receiver);
-      }
-
       if (!incomingTracks.length) return;
 
       setRemoteMediaStreams(prev => {
@@ -909,8 +866,8 @@ export function useWebRTC(socket, callId, myUserId) {
 
     // Emit end event to server
     if (socket && callId) {
-      socket.emit('call:end', { callId });
-      console.log('[useWebRTC] Sent call:end for:', callId);
+      socket.emit('call_end', { callId });
+      console.log('[useWebRTC] Sent call_end for:', callId);
     }
 
     // Run cleanup and wait for it to complete
@@ -963,8 +920,15 @@ export function useWebRTC(socket, callId, myUserId) {
     // Give the newly joined peer 2 seconds to mount their WebRTC components and start listening for offers
     setTimeout(async () => {
       if (peerConnections.current.has(targetUserId)) {
-        console.log('[useWebRTC] Peer rejoined or missed initial offer, re-sending offer to:', targetUserId);
         const pc = peerConnections.current.get(targetUserId);
+        
+        // Don't re-offer if already connected or currently connecting
+        if (pc.connectionState === 'connected' || pc.connectionState === 'connecting') {
+          console.log('[useWebRTC] Peer is already connected/connecting, skipping re-offer');
+          return;
+        }
+
+        console.log('[useWebRTC] Peer rejoined or missed initial offer, re-sending offer to:', targetUserId);
         try {
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
@@ -1031,6 +995,7 @@ export function useWebRTC(socket, callId, myUserId) {
         callId,
         answer
       });
+      pc._initialNegotiationDone = true;
       console.log('[useWebRTC] Sent answer to:', fromUserId);
     } catch (err) {
       console.error('[useWebRTC] Failed to handle offer:', err);

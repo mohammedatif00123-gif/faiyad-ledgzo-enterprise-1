@@ -4,7 +4,7 @@ const BookmarkService = require('../services/BookmarkService');
 const PinService = require('../services/PinService');
 const DraftService = require('../services/DraftService');
 const { sendResponse } = require('../utils/apiResponse');
-const { getIo } = require('../sockets');
+const { getIO } = require('../sockets');
 
 exports.getMessages = async (req, res) => {
   try {
@@ -37,7 +37,7 @@ exports.editMessage = async (req, res) => {
     const userId = req.user.id;
     const message = await MessageService.editMessage(messageId, userId, content, reason);
     
-    getIo().to(`room_${message.conversation}`).emit('message_updated', message);
+    getIO().to(`room_${message.conversation}`).emit('message_updated', message);
     sendResponse(res, 200, 'Message updated', message);
   } catch (error) {
     sendResponse(res, 500, error.message, null, error);
@@ -50,7 +50,7 @@ exports.deleteForEveryone = async (req, res) => {
     const userId = req.user.id;
     const message = await MessageService.deleteForEveryone(messageId, userId, req.user.role);
     
-    getIo().to(`room_${message.conversation}`).emit('message_deleted', { messageId, type: 'everyone' });
+    getIO().to(`room_${message.conversation}`).emit('message_deleted', { messageId, conversationId: message.conversation, type: 'everyone' });
     sendResponse(res, 200, 'Message deleted for everyone', message);
   } catch (error) {
     sendResponse(res, 500, error.message, null, error);
@@ -71,6 +71,10 @@ exports.deleteForMe = async (req, res) => {
 exports.bulkDeleteForEveryone = async (req, res) => {
   try {
     const { messageIds } = req.body;
+    if (!Array.isArray(messageIds)) {
+      return sendResponse(res, 400, 'messageIds must be an array', null);
+    }
+
     const userId = req.user.id;
     const role = req.user.role;
     
@@ -79,14 +83,17 @@ exports.bulkDeleteForEveryone = async (req, res) => {
     );
     
     // Get valid deleted messages to emit socket events
-    const validDeleted = results.filter(m => m !== null);
+    const validDeleted = results.filter(m => m !== null && m !== undefined);
     if (validDeleted.length > 0) {
       const convId = validDeleted[0].conversation;
-      getIo().to(`room_${convId}`).emit('messages_deleted_bulk', { messageIds, type: 'everyone' });
+      if (convId) {
+        getIO().to(`room_${convId.toString()}`).emit('messages_deleted_bulk', { messageIds, conversationId: convId.toString(), type: 'everyone' });
+      }
     }
     
     sendResponse(res, 200, 'Messages deleted for everyone', null);
   } catch (error) {
+    console.error('bulkDeleteForEveryone error:', error);
     sendResponse(res, 500, error.message, null, error);
   }
 };
@@ -94,6 +101,10 @@ exports.bulkDeleteForEveryone = async (req, res) => {
 exports.bulkDeleteForMe = async (req, res) => {
   try {
     const { messageIds } = req.body;
+    if (!Array.isArray(messageIds)) {
+      return sendResponse(res, 400, 'messageIds must be an array', null);
+    }
+
     const userId = req.user.id;
     
     await Promise.all(
@@ -102,6 +113,7 @@ exports.bulkDeleteForMe = async (req, res) => {
     
     sendResponse(res, 200, 'Messages deleted for you', null);
   } catch (error) {
+    console.error('bulkDeleteForMe error:', error);
     sendResponse(res, 500, error.message, null, error);
   }
 };
@@ -126,7 +138,7 @@ exports.addReaction = async (req, res) => {
     const userId = req.user.id;
     const message = await MessageService.addReaction(messageId, emoji, userId);
     
-    getIo().to(`room_${message.conversation}`).emit('reaction_updated', { messageId, reactions: message.reactions });
+    getIO().to(`room_${message.conversation}`).emit('reaction_updated', { messageId, reactions: message.reactions });
     sendResponse(res, 200, 'Reaction added', message.reactions);
   } catch (error) {
     sendResponse(res, 500, error.message, null, error);
@@ -140,7 +152,7 @@ exports.removeReaction = async (req, res) => {
     const userId = req.user.id;
     const message = await MessageService.removeReaction(messageId, emoji, userId);
     
-    getIo().to(`room_${message.conversation}`).emit('reaction_updated', { messageId, reactions: message.reactions });
+    getIO().to(`room_${message.conversation}`).emit('reaction_updated', { messageId, reactions: message.reactions });
     sendResponse(res, 200, 'Reaction removed', message.reactions);
   } catch (error) {
     sendResponse(res, 500, error.message, null, error);
@@ -185,7 +197,7 @@ exports.pinMessage = async (req, res) => {
     const { conversationId, messageId } = req.params;
     const userId = req.user.id;
     const pin = await PinService.pinMessage(conversationId, messageId, userId);
-    getIo().to(`room_${conversationId}`).emit('pin_added', pin);
+    getIO().to(`room_${conversationId}`).emit('pin_added', pin);
     sendResponse(res, 201, 'Message pinned', pin);
   } catch (error) {
     sendResponse(res, 500, error.message, null, error);
@@ -196,7 +208,7 @@ exports.unpinMessage = async (req, res) => {
   try {
     const { conversationId, messageId } = req.params;
     await PinService.unpinMessage(conversationId, messageId);
-    getIo().to(`room_${conversationId}`).emit('pin_removed', { messageId });
+    getIO().to(`room_${conversationId}`).emit('pin_removed', { messageId });
     sendResponse(res, 200, 'Message unpinned', null);
   } catch (error) {
     sendResponse(res, 500, error.message, null, error);

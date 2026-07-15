@@ -5,7 +5,9 @@ import { toast } from 'sonner';
 import {
   addMessage,
   setTyping,
-  updateMessage
+  updateMessage,
+  updatePartnerStatus,
+  markMessagesDeleted
 } from '../store/slices/chatSlice';
 import {
   setIncomingCall,
@@ -124,6 +126,16 @@ export function SocketProvider({ children }) {
       }));
     });
 
+    newSocket.on('message_deleted', ({ conversationId, messageId }) => {
+      if (!conversationId || !messageId) return;
+      dispatch(markMessagesDeleted({ conversationId, messageIds: [messageId] }));
+    });
+
+    newSocket.on('messages_deleted_bulk', ({ conversationId, messageIds }) => {
+      if (!conversationId || !Array.isArray(messageIds)) return;
+      dispatch(markMessagesDeleted({ conversationId, messageIds }));
+    });
+
     newSocket.on('conversation_read', ({ conversationId, readBy }) => {
       // Dispatch an action or reuse updateMessage to mark all as read
       dispatch({
@@ -170,14 +182,15 @@ export function SocketProvider({ children }) {
       dispatch(updateParticipantState({ userId: data.from, muted: data.isMuted }));
     });
 
-    newSocket.on('user_status_changed', ({ userId, presenceStatus }) => {
+    newSocket.on('user_status_changed', ({ userId, presenceStatus, awayReason }) => {
       if (userId === user.id) {
         // Only import updateUser if we don't already have it
         import('../store/slices/authSlice').then(({ updateUser }) => {
           dispatch(updateUser({ presenceStatus }));
         });
       }
-      // Optionally also update chat directory/colleagues if needed
+      // Update chat directory/colleagues
+      dispatch(updatePartnerStatus({ userId, presenceStatus, awayReason }));
     });
 
     setSocket(newSocket);
