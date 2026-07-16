@@ -13,6 +13,16 @@ class MessageService {
   }
 
   async saveMessage(data) {
+    if (['text', 'voice', 'image', 'document'].includes(data.messageType || 'text')) {
+      if (!data.isEncrypted) {
+        throw new Error('E2EE Violation: Plaintext messages are not allowed for this message type.');
+      }
+      if (data.content && !data.iv) {
+        throw new Error('E2EE Violation: Missing Initialization Vector (IV) for encrypted content.');
+      }
+      // Note: Group vs Direct keyVersion validation could be added if we fetched Conversation type here, but isEncrypted is sufficient to block plaintext.
+    }
+
     const message = await MessageRepository.create({
       conversation: data.conversationId,
       sender: data.senderId,
@@ -25,10 +35,14 @@ class MessageService {
       forwardSource: data.forwardSource || null,
       isEncrypted: data.isEncrypted || false,
       iv: data.iv || null,
+      keyVersion: data.keyVersion || 1,
       status: 'sent',
       scheduledFor: data.scheduledFor || null,
       mentions: data.mentions || []
     });
+
+    const Conversation = require('../models/Conversation');
+    await Conversation.findByIdAndUpdate(data.conversationId, { updatedAt: new Date() });
 
     const populated = await MessageRepository.model.findById(message._id)
       .populate('sender', 'firstName lastName avatar')

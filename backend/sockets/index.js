@@ -3,6 +3,8 @@ const jwt = require('jsonwebtoken');
 const UserRepository = require('../repositories/UserRepository');
 const ChatService = require('../services/ChatService');
 const MessageService = require('../services/MessageService');
+const PresenceService = require('../services/PresenceService');
+const CallService = require('../services/CallService');
 const ReadReceipt = require('../models/ReadReceipt');
 const { extractAuthToken } = require('../utils/authToken');
 
@@ -49,14 +51,36 @@ const initSocket = (server) => {
   io.on('connection', async (socket) => {
     console.log(`User Connected: ${socket.user.id} with socket: ${socket.id}`);
     
-    // Set user as online in DB and PresenceService
+    // Check if user is checked in
+    const Attendance = require('../models/Attendance');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(today);
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    const att = await Attendance.findOne({ 
+      employeeId: socket.user.id, 
+      date: { $gte: today, $lte: endOfDay } 
+    });
+
+    const isCheckedIn = att && !att.checkOut;
+
+    // Set user as online in DB and PresenceService ONLY if they are checked in
     await UserRepository.updateOnlineStatus(socket.user.id, socket.id, true);
-    const PresenceService = require('../services/PresenceService');
-    await PresenceService.setStatus(socket.user.id, 'Online', io);
     
     const User = require('../models/User');
-    await User.findByIdAndUpdate(socket.user.id, { presenceStatus: 'online' });
-    io.emit('user_status_changed', { userId: socket.user.id, presenceStatus: 'online' });
+    const PresenceService = require('../services/PresenceService');
+    
+    if (isCheckedIn) {
+      await PresenceService.setStatus(socket.user.id, 'Online', io);
+      await User.findByIdAndUpdate(socket.user.id, { presenceStatus: 'online' });
+      io.emit('user_status_changed', { userId: socket.user.id, presenceStatus: 'online' });
+    } else {
+      // Just keep them offline in presence to others, though socket is connected
+      await PresenceService.setStatus(socket.user.id, 'Offline', null);
+      await User.findByIdAndUpdate(socket.user.id, { presenceStatus: 'offline' });
+      // We don't need to broadcast offline if they were already offline, but it's safe to do so
+    }
 
     // Join user's personal room for direct notifications
     socket.join(`user_${socket.user.id}`);
@@ -293,8 +317,6 @@ const initSocket = (server) => {
 
       await UserRepository.updateOnlineStatus(socket.user.id, null, false);
       
-      const PresenceService = require('../services/PresenceService');
-      const CallService = require('../services/CallService');
       const User = require('../models/User');
       
       await PresenceService.setStatus(socket.user.id, 'Offline', io);

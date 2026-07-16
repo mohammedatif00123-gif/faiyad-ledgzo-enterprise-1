@@ -54,6 +54,12 @@ exports.checkIn = async (req, res) => {
 
     // Update user status
     await User.findByIdAndUpdate(req.user._id, { presenceStatus: 'online' });
+    try {
+      const { getIO } = require('../sockets');
+      getIO().emit('user_status_changed', { userId: req.user._id, presenceStatus: 'online' });
+    } catch (err) {
+      console.error('Socket not initialized', err);
+    }
 
     res.status(200).json({ success: true, data: attendance });
   } catch (error) {
@@ -107,6 +113,12 @@ exports.checkOut = async (req, res) => {
     await attendance.save();
 
     await User.findByIdAndUpdate(req.user._id, { presenceStatus: 'offline' });
+    try {
+      const { getIO } = require('../sockets');
+      getIO().emit('user_status_changed', { userId: req.user._id, presenceStatus: 'offline' });
+    } catch (err) {
+      console.error('Socket not initialized', err);
+    }
 
     res.status(200).json({ success: true, data: attendance });
   } catch (error) {

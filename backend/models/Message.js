@@ -15,7 +15,7 @@ const messageSchema = new mongoose.Schema({
       'MEMBER_ADDED', 'MEMBER_REMOVED', 'MEMBER_LEFT', 'OWNER_CHANGED', 'ADMIN_PROMOTED',
       'ADMIN_REMOVED', 'SETTINGS_CHANGED', 'INVITE_CREATED', 'INVITE_REGENERATED',
       'INVITE_DISABLED', 'JOIN_REQUEST', 'JOIN_APPROVED', 'JOIN_REJECTED', 'GROUP_DELETED',
-      'call_log'
+      'KEYS_UPDATED', 'call_log'
     ]
   },
   parentMessage: { type: mongoose.Schema.Types.ObjectId, ref: 'Message' }, // Direct reply
@@ -33,6 +33,7 @@ const messageSchema = new mongoose.Schema({
   deletedForMe: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Hidden for specific users
   isEncrypted: { type: Boolean, default: false },
   iv: { type: String }, // Base64 encoded Initialization Vector
+  keyVersion: { type: Number, default: 1 },
   status: { type: String, enum: ['sent', 'delivered', 'read'], default: 'sent' },
   scheduledFor: { type: Date }
 }, {

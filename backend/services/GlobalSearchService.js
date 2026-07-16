@@ -10,6 +10,7 @@ class GlobalSearchService {
 
     // Search Users (exclude self if needed, but keeping simple for global search)
     const users = await User.find({
+      role: { $ne: 'Admin' },
       $or: [
         { firstName: regex },
         { lastName: regex },

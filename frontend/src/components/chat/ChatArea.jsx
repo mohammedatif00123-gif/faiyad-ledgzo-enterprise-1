@@ -14,15 +14,25 @@ import { DeleteModal } from './DeleteModal';
 import { ForwardModal } from './ForwardModal';
 import { groupMessagesByDay } from '../../utils/messageUtils';
 import api from '../../services/api';
-import { setMessages, setActiveThread, addMessage, removeMessagesBulk, markMessagesDeleted } from '../../store/slices/chatSlice';
-import { X, Search, Trash2, Forward as ForwardIcon, Pin } from 'lucide-react';
+import { setMessages, setActiveThread, addMessage, removeMessagesBulk, markMessagesDeleted, setHistoryFetched } from '../../store/slices/chatSlice';
+import { exportAESKey, encryptText } from '../../utils/cryptoService';
+import { X, Search, Trash2, Forward as ForwardIcon, Pin, Loader2 } from 'lucide-react';
 import { useE2EE } from '../../context/E2EEContext';
+import { toast } from 'sonner';
+
+const getMemberId = (member) => {
+  if (!member) return null;
+  if (typeof member.user === 'object') {
+    return member.user?._id || member.user?.id;
+  }
+  return member.user || null;
+};
 
 export function ChatArea({ socket }) {
   const dispatch = useDispatch();
   const { user } = useSelector(state => state.auth);
-  const { conversations, activeConversation, messages, activeThread, typing: stateTyping = {} } = useSelector(state => state.chat);
-  const { encryptDirectMessage, encryptGroupMessage, decryptDirectMessage, decryptGroupMessage, isReady: isE2EEReady } = useE2EE();
+  const { conversations, activeConversation, messages, historyFetched = {}, activeThread, typing: stateTyping = {} } = useSelector(state => state.chat);
+  const { encryptDirectMessage, encryptGroupMessage, decryptDirectMessage, decryptGroupMessage, isReady: isE2EEReady, getGroupKey, getSharedSecret, cacheGroupKey } = useE2EE();
   const parentRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -52,7 +62,9 @@ export function ChatArea({ socket }) {
   const isTyping = typingUsers.length > 0;
 
   const partnerIdForDirect = (conv, currentUserId) => {
-    if (!conv || !conv.participants) return null;
+    if (!conv) return null;
+    if (conv.partnerId) return conv.partnerId;
+    if (!conv.participants) return null;
     const p = conv.participants.find(pt => {
       const pId = typeof pt === 'object' ? (pt._id || pt.id) : pt;
       return pId !== currentUserId;
@@ -77,7 +89,8 @@ export function ChatArea({ socket }) {
   };
 
   useEffect(() => {
-    if (activeConversation && !messages[activeConversation]) {
+    if (!isE2EEReady || !conversation) return;
+    if (activeConversation && !historyFetched[activeConversation]) {
       api.get(`/messages/conversation/${activeConversation}`)
         .then(async (res) => {
           let fetchedMessages = res.data.data || [];
@@ -92,11 +105,11 @@ export function ChatArea({ socket }) {
                   if (conversation?.type === 'direct') {
                     msg.content = await decryptDirectMessage(msg.content, msg.iv, senderId === currentUserId ? partnerIdForDirect(conversation, currentUserId) : senderId);
                   } else if (conversation?.type === 'channel' || conversation?.type === 'group') {
-                    msg.content = await decryptGroupMessage(msg.content, msg.iv, activeConversation);
+                    msg.content = await decryptGroupMessage(msg.content, msg.iv, activeConversation, msg.keyVersion);
                   }
                 } catch (err) {
                   console.error('[E2EE] Initial Fetch Decryption error:', err);
-                  msg.content = `🔒 [Decryption Failed: ${err.message}]`;
+                  msg.content = `🔒 Unable to decrypt message`;
                 }
               }
               return msg;
@@ -105,14 +118,17 @@ export function ChatArea({ socket }) {
 
           dispatch(setMessages({ conversationId: activeConversation, messages: fetchedMessages }));
         })
-        .catch(console.error);
+        .catch(err => {
+          console.error('[ChatArea] History fetch error:', err);
+          dispatch(setHistoryFetched({ conversationId: activeConversation, fetched: true }));
+        });
     }
     // Reset selection & search when changing chats
     setSelectionMode(null);
     setSelectedMessages([]);
     setIsSearchActive(false);
     setSearchQuery('');
-  }, [activeConversation, dispatch, isE2EEReady]);
+  }, [activeConversation, dispatch, isE2EEReady, conversation]);
 
 
 
@@ -136,7 +152,7 @@ export function ChatArea({ socket }) {
     if (rowVirtualizer.getTotalSize() > 0 && displayedMessages.length > 0 && !isSearchActive) {
       rowVirtualizer.scrollToIndex(displayedMessages.length - 1, { align: 'end' });
     }
-  }, [displayedMessages.length, rowVirtualizer, isSearchActive]);
+  }, [displayedMessages.length, rowVirtualizer, isSearchActive, activeConversation]);
 
   useEffect(() => {
     if (!socket || !activeConversation || !currentMessages.length) return;
@@ -149,12 +165,20 @@ export function ChatArea({ socket }) {
 
   const handleSend = async (payload) => {
     if (!socket || !activeConversation) return;
+    
+    const isEncryptedConversation = conversation?.type === 'direct' || conversation?.type === 'channel' || conversation?.type === 'group';
 
-    let contentToEmit = payload.content;
+    if (isEncryptedConversation && !isE2EEReady) {
+      console.log('[E2EE] Cannot send message: E2EE is not ready');
+      return;
+    }
+
+    let contentToEmit = payload.content || "";
     let isEncrypted = false;
     let ivToEmit = null;
+    let keyVersionToEmit = undefined;
 
-    if (isE2EEReady && contentToEmit) {
+    if (isE2EEReady) {
       if (conversation?.type === 'direct') {
         const partnerId = partnerIdForDirect(conversation, user._id || user.id);
 
@@ -165,8 +189,9 @@ export function ChatArea({ socket }) {
             ivToEmit = encRes.iv;
             isEncrypted = true;
           } catch (err) {
-            console.error('[E2EE] Direct Message Encryption failed:', err);
-            return; // Enforce E2EE
+            console.error('[E2EE] Encryption failed', err);
+            toast.error("Encryption failed: You don't have the active group key. If it is permanently lost, an admin must regenerate it.");
+            return;
           }
         }
       } else if (conversation?.type === 'channel' || conversation?.type === 'group') {
@@ -174,10 +199,12 @@ export function ChatArea({ socket }) {
           const encRes = await encryptGroupMessage(contentToEmit, activeConversation);
           contentToEmit = encRes.ciphertext;
           ivToEmit = encRes.iv;
+          keyVersionToEmit = encRes.keyVersion;
           isEncrypted = true;
         } catch (err) {
-          console.error('[E2EE] Group Message Encryption failed:', err);
-          return; // Enforce E2EE
+          console.error('[E2EE] Encryption failed', err);
+          toast.error("Encryption failed: You don't have the active group key. If it is permanently lost, an admin must regenerate it.");
+          return;
         }
       }
     }
@@ -193,7 +220,8 @@ export function ChatArea({ socket }) {
       createdAt: new Date().toISOString(),
       parentMessage: replyTo ? replyTo._id : null,
       status: 'sent',
-      isEncrypted
+      isEncrypted,
+      keyVersion: keyVersionToEmit
     };
 
     dispatch(addMessage({ conversationId: activeConversation, message: optimisticMsg }));
@@ -205,7 +233,8 @@ export function ChatArea({ socket }) {
       messageType: payload.messageType || 'text',
       parentMessage: replyTo ? replyTo._id : null,
       isEncrypted,
-      iv: ivToEmit
+      iv: ivToEmit,
+      keyVersion: keyVersionToEmit
     });
     setReplyTo(null);
   };
@@ -347,13 +376,18 @@ export function ChatArea({ socket }) {
           ref={parentRef}
           className="flex-1 overflow-y-auto p-4 md:px-8 custom-scrollbar overflow-x-hidden relative z-10"
         >
-          <div
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              width: '100%',
-              position: 'relative',
-            }}
-          >
+          {!historyFetched[activeConversation] ? (
+            <div className="flex items-center justify-center h-full">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div
+              style={{
+                height: `${rowVirtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
               const msg = displayedMessages[virtualRow.index];
               const prevMsg = virtualRow.index > 0 ? displayedMessages[virtualRow.index - 1] : null;
@@ -403,7 +437,8 @@ export function ChatArea({ socket }) {
                 </div>
               );
             })}
-          </div>
+            </div>
+          )}
 
           {isTyping && !isSearchActive && (
             <div className="flex items-center gap-2 p-3 w-fit mt-2 rounded-2xl bg-white dark:bg-[#202c33] text-muted-foreground animate-in slide-in-from-bottom-2 shadow-sm">
@@ -472,3 +507,4 @@ export function ChatArea({ socket }) {
     </div>
   );
 }
+

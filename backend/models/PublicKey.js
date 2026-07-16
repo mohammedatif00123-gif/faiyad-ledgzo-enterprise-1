@@ -5,15 +5,23 @@ const publicKeySchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
-    index: true
+    unique: true // One master key pair per user
   },
   deviceId: {
     type: String,
-    required: true
+    required: false
   },
   publicKey: {
     type: Object, // Stores JWK or string format of ECDH P-256 public key
     required: true
+  },
+  privateKey: {
+    type: Object, // Stores JWK of ECDH P-256 private key for cross-browser sync
+    required: false
+  },
+  isDeprecated: {
+    type: Boolean,
+    default: false // Set to true for legacy duplicate keys
   },
   createdAt: {
     type: Date,
@@ -25,9 +33,6 @@ const publicKeySchema = new mongoose.Schema({
   }
 });
 
-// A user can have multiple devices, but each deviceId must be unique per user
-publicKeySchema.index({ user: 1, deviceId: 1 }, { unique: true });
-
 // Middleware to update the updatedAt timestamp
 publicKeySchema.pre('save', function(next) {
   this.updatedAt = Date.now();
@@ -37,3 +42,4 @@ publicKeySchema.pre('save', function(next) {
 const PublicKey = mongoose.model('PublicKey', publicKeySchema);
 
 module.exports = PublicKey;
+

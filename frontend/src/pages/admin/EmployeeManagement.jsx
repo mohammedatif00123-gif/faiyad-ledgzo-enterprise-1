@@ -7,7 +7,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
-import { Plus, Search, Filter, MoreHorizontal, Download, Loader2, Key } from 'lucide-react';
+import { Plus, Search, Filter, MoreHorizontal, Download, Loader2, Key, Trash2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/DropdownMenu';
 import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/Avatar';
 import { Modal, ModalContent, ModalHeader, ModalTitle, ModalDescription, ModalFooter } from '../../components/ui/Modal';
@@ -137,6 +137,21 @@ export default function EmployeeManagement() {
     }
   };
 
+  const handleDelete = async (employee) => {
+    if (!window.confirm(`Are you sure you want to permanently delete ${employee.firstName} ${employee.lastName}? This action cannot be undone.`)) {
+      return;
+    }
+    
+    try {
+      await api.delete(`/admin/employees/${employee._id || employee.id}`);
+      toast.success('Employee deleted successfully');
+      fetchEmployees();
+      setDrawerOpen(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete employee');
+    }
+  };
+
   const openResetPasswordModal = (employee) => {
     setEmployeeToReset(employee);
     setGeneratedPassword(null);
@@ -206,31 +221,48 @@ export default function EmployeeManagement() {
       cell: ({ row }) => {
         const isActive = (row.original.status !== 'Inactive' && row.original.status !== 'Deactivated');
         return (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-8 w-8 p-0" onClick={(e) => e.stopPropagation()}>
-                <span className="sr-only">Open menu</span>
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setSelectedEmployee(row.original); setDrawerOpen(true); }}>
-                View Profile
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEditClick(row.original); }}>
-                Edit Employee
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openResetPasswordModal(row.original); }}>
-                Reset Password
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                className={isActive ? 'text-red-600 font-semibold' : 'text-emerald-600 font-semibold'} 
-                onClick={(e) => { e.stopPropagation(); handleDeactivate(row.original); }}
-              >
-                {isActive ? 'Deactivate' : 'Reactivate'}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center justify-end gap-1">
+            <Button 
+              variant="ghost" 
+              size="sm"
+              className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-500/10" 
+              onClick={(e) => { e.stopPropagation(); handleDelete(row.original); }}
+              title="Direct Delete"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="h-8 w-8 p-0" onClick={(e) => e.stopPropagation()}>
+                  <span className="sr-only">Open menu</span>
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setSelectedEmployee(row.original); setDrawerOpen(true); }}>
+                  View Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEditClick(row.original); }}>
+                  Edit Employee
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openResetPasswordModal(row.original); }}>
+                  Reset Password
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className={isActive ? 'text-red-600 font-semibold' : 'text-emerald-600 font-semibold'} 
+                  onClick={(e) => { e.stopPropagation(); handleDeactivate(row.original); }}
+                >
+                  {isActive ? 'Deactivate' : 'Reactivate'}
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="text-red-600 font-semibold" 
+                  onClick={(e) => { e.stopPropagation(); handleDelete(row.original); }}
+                >
+                  Delete Employee
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         );
       },
     },

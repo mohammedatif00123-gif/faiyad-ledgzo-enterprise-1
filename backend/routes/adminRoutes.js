@@ -27,7 +27,7 @@ router.use(adminOnly);
 // ----------------------------------------------------
 router.get('/dashboard/overview', async (req, res) => {
   try {
-    const users = await User.find({ role: { $ne: 'Admin' } }).select('presenceStatus');
+    const users = await User.find({ role: { $nin: ['Admin', 'admin'] } }).select('presenceStatus');
     const totalEmployees = users.length;
     
     const today = new Date();
@@ -136,7 +136,7 @@ router.get('/dashboard/leave-stats', async (req, res) => {
 // ----------------------------------------------------
 router.get('/attendance/all', async (req, res) => {
   try {
-    const users = await User.find({ role: { $ne: 'Admin' } }).select('-password');
+    const users = await User.find({ role: { $nin: ['Admin', 'admin'] } }).select('-password');
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -239,7 +239,7 @@ router.put('/attendance/:id/correct', async (req, res) => {
 router.get('/employees', async (req, res) => {
   try {
     const { search, page = 1, limit = 20 } = req.query;
-    let query = { role: { $ne: 'Admin' } };
+    let query = { role: { $nin: ['Admin', 'admin'] } };
     
     if (search) {
       query.$or = [
@@ -367,6 +367,22 @@ router.put('/employees/:id/reset-password', async (req, res) => {
     await user.save();
     
     res.json({ success: true, data: { tempPassword } });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.delete('/employees/:id', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    if (user.role === 'Admin') {
+      return res.status(403).json({ message: 'Cannot delete an admin' });
+    }
+    await User.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: 'Employee deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

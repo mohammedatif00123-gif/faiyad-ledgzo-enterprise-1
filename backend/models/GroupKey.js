@@ -19,10 +19,14 @@ const groupKeySchema = new mongoose.Schema({
   encryptedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
+  },
+  version: {
+    type: Number,
+    default: 1
   }
 }, { timestamps: true });
 
-groupKeySchema.index({ conversation: 1, user: 1 }, { unique: true });
+groupKeySchema.index({ conversation: 1, user: 1, version: 1 }, { unique: true });
 
 const GroupKey = mongoose.model('GroupKey', groupKeySchema);
 

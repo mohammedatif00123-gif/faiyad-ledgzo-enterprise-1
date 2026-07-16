@@ -49,11 +49,17 @@ export function useDecryptedMedia(attachment, message) {
           
           let partnerId = senderId;
           if (senderId === currentUserId) {
-            const partner = conv.participants.find(p => {
-              const pId = typeof p === 'object' ? (p._id || p.id) : p;
-              return pId !== currentUserId;
-            });
-            partnerId = partner ? (typeof partner === 'object' ? (partner._id || partner.id) : partner) : null;
+            if (conv.partnerId) {
+              partnerId = conv.partnerId;
+            } else if (conv.participants) {
+              const partner = conv.participants.find(p => {
+                const pId = typeof p === 'object' ? (p._id || p.id) : p;
+                return pId !== currentUserId;
+              });
+              partnerId = partner ? (typeof partner === 'object' ? (partner._id || partner.id) : partner) : null;
+            } else {
+              partnerId = null;
+            }
           }
           
           if (partnerId) {
@@ -69,7 +75,8 @@ export function useDecryptedMedia(attachment, message) {
         const jwk = JSON.parse(jwkString);
         const fileKey = await importAESKey(jwk);
 
-        const response = await fetch(attachment.fileUrl, {
+        const fileUrlToFetch = getRawUrl(attachment.fileUrl);
+        const response = await fetch(fileUrlToFetch, {
           mode: 'cors',
           credentials: 'omit'
         });

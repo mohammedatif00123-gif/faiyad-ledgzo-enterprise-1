@@ -3,9 +3,10 @@ import api from '../../services/api';
 
 const initialState = {
   conversations: [],
-  activeConversation: null,
+  activeConversation: localStorage.getItem('activeConversation') || null,
   activeThread: null, // thread root message ID
   messages: {}, // { conversationId: [messages] }
+  historyFetched: {}, // { conversationId: boolean }
   threadMessages: {}, // { threadRootId: [messages] }
   typing: {}, // { conversationId: { userId: boolean } }
   readReceipts: {}, // { conversationId: unreadCount }
@@ -92,12 +93,18 @@ const chatSlice = createSlice({
       state.conversations = state.conversations.filter(c => c._id !== action.payload);
       if (state.activeConversation === action.payload) {
         state.activeConversation = null;
+        localStorage.removeItem('activeConversation');
       }
       delete state.messages[action.payload];
       delete state.readReceipts[action.payload];
     },
     setActiveConversation: (state, action) => {
       state.activeConversation = action.payload;
+      if (action.payload) {
+        localStorage.setItem('activeConversation', action.payload);
+      } else {
+        localStorage.removeItem('activeConversation');
+      }
       state.activeThread = null; // Close thread when switching channel
       if (action.payload && state.readReceipts[action.payload]) {
         state.readReceipts[action.payload] = 0;
@@ -107,6 +114,13 @@ const chatSlice = createSlice({
     setMessages: (state, action) => {
       const { conversationId, messages } = action.payload;
       state.messages[conversationId] = messages;
+      if (!state.historyFetched) state.historyFetched = {};
+      state.historyFetched[conversationId] = true;
+    },
+    setHistoryFetched: (state, action) => {
+      const { conversationId, fetched } = action.payload;
+      if (!state.historyFetched) state.historyFetched = {};
+      state.historyFetched[conversationId] = fetched;
     },
     addMessage: (state, action) => {
       const { conversationId, message } = action.payload;
@@ -252,6 +266,7 @@ const chatSlice = createSlice({
       state.conversations = state.conversations.filter(c => c._id !== action.payload);
       if (state.activeConversation === action.payload) {
         state.activeConversation = null;
+        localStorage.removeItem('activeConversation');
       }
       delete state.messages[action.payload];
       delete state.readReceipts[action.payload];
@@ -260,6 +275,7 @@ const chatSlice = createSlice({
       state.conversations = state.conversations.filter(c => c._id !== action.payload);
       if (state.activeConversation === action.payload) {
         state.activeConversation = null;
+        localStorage.removeItem('activeConversation');
       }
       delete state.messages[action.payload];
       delete state.readReceipts[action.payload];
@@ -272,7 +288,7 @@ export const {
   updatePartnerStatus,
   removeConversation,
   setActiveConversation, setActiveThread, 
-  setMessages, addMessage, updateMessage, removeMessage, removeMessagesBulk, markMessagesDeleted, setThreadMessages,
+  setMessages, addMessage, updateMessage, removeMessage, removeMessagesBulk, markMessagesDeleted, setThreadMessages, setHistoryFetched,
   setTyping, 
   setPinnedMessages, addPinnedMessage, removePinnedMessage,
   setBookmarks, addBookmark, removeBookmark,

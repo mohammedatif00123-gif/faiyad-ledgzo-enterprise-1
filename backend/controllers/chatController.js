@@ -48,7 +48,10 @@ exports.getChatDirectory = async (req, res, next) => {
     const Attendance = require('../models/Attendance');
     const Leave = require('../models/Leave');
 
-    const users = await User.find({ status: 'Active' }).select('firstName lastName avatar role isOnline presenceStatus').lean();
+    const users = await User.find({ 
+      status: 'Active', 
+      role: { $nin: ['Admin', 'admin'] } 
+    }).select('firstName lastName avatar role isOnline presenceStatus').lean();
     
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -226,8 +229,8 @@ exports.resendGroupKey = async (req, res, next) => {
 exports.reEncryptGroupKeys = async (req, res, next) => {
   try {
     const { conversationId } = req.params;
-    const { keys } = req.body;
-    await ChatService.reEncryptGroupKeys(req.user.id, conversationId, keys);
+    const { keys, version } = req.body;
+    await ChatService.reEncryptGroupKeys(req.user.id, conversationId, keys, version);
     sendResponse(res, 200, 'Group keys re-encrypted successfully');
   } catch (error) {
     next(error);

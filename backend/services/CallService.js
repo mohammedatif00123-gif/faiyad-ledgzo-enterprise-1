@@ -5,10 +5,25 @@ const PresenceService = require('./PresenceService');
 const { AppError } = require('../utils/errors');
 
 class CallService {
+  async _isUserBusy(userId) {
+    const activeParticipants = await CallParticipant.find({ user: userId, leftAt: null }).populate('callSession');
+    const terminalStates = ['Rejected', 'Missed', 'Ended', 'Cancelled', 'Busy'];
+    
+    for (const p of activeParticipants) {
+      if (p.callSession && !terminalStates.includes(p.callSession.status)) {
+        // Check if the call is stale (e.g. older than 12 hours)
+        const hoursSinceStart = (new Date() - new Date(p.callSession.startedAt)) / (1000 * 60 * 60);
+        if (hoursSinceStart < 12) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   async startCall({ conversationId, callerId, participants, callType = 'voice' }) {
     // 1. Check if caller is already in a call
-    const activeCallerCall = await CallParticipant.findOne({ user: callerId, leftAt: null });
-    if (activeCallerCall) {
+    if (await this._isUserBusy(callerId)) {
       throw new AppError('You are already in a call', 400);
     }
 
@@ -27,8 +42,7 @@ class CallService {
 
     // 2. Check if receiver is busy (for 1-on-1 calls)
     if (callParticipants.length === 1) {
-      const activeReceiverCall = await CallParticipant.findOne({ user: callParticipants[0], leftAt: null });
-      if (activeReceiverCall) {
+      if (await this._isUserBusy(callParticipants[0])) {
         throw new AppError('User is busy on another call', 409);
       }
 
@@ -61,6 +75,7 @@ class CallService {
     await callerParticipant.save();
 
     // 5. Update Caller Presence
+    const { getIO } = require('../sockets');
     await PresenceService.setStatus(callerId, 'In Call', getIO());
 
     // 6. Emit call_ringing to all participants
@@ -138,6 +153,7 @@ class CallService {
     await callSession.save();
 
     // Update Presence
+    const { getIO } = require('../sockets');
     await PresenceService.setStatus(userId, 'In Call', getIO());
 
     // Broadcast peer_joined_call to ALL OTHER participants in the session
@@ -180,6 +196,7 @@ class CallService {
 
     // Emit call_invite to the new user
     const inviter = await require('../models/User').findById(inviterId);
+    const { getIO } = require('../sockets');
     const io = getIO();
     if (io) {
       io.to(`user_${newUserId.toString()}`).emit('call_ringing', {
@@ -220,6 +237,7 @@ class CallService {
     await this._createSystemMessage(callSession.conversation, userId, `${u.firstName} declined the call`);
 
     // Reset Caller Presence
+    const { getIO } = require('../sockets');
     await PresenceService.setStatus(callSession.initiatedBy, 'Online', getIO());
 
     return callSession;

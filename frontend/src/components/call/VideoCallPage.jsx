@@ -68,18 +68,6 @@ export function VideoCallPage({ socket }) {
     }
   }, [activeCall?.status, isReady, activeCall?.callType, activeCall?.initialSettings]);
 
-  // Auto-start screen share for screen_share calls (initiator only)
-  useEffect(() => {
-    if (isReady && activeCall?.callType === 'screen_share' && activeCall?.isInitiator && !isScreenSharing) {
-      // Small timeout to allow WebRTC connection to establish
-      const timer = setTimeout(() => {
-        handleToggleScreenShare();
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [isReady, activeCall?.callType, activeCall?.isInitiator]);
-
-
 
   // Clean up screen share stream if call ends externally
   useEffect(() => {

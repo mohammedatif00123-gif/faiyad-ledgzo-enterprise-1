@@ -29,7 +29,11 @@ export function ScreenShareView({
 
   useEffect(() => {
     if (mainVideoRef.current && screenStream) {
+      console.log('[ScreenShareView] Mounting screenStream:', screenStream.id, 'Tracks:', screenStream.getTracks().map(t => `${t.kind} (${t.enabled ? 'enabled' : 'disabled'})`));
       mainVideoRef.current.srcObject = screenStream;
+      mainVideoRef.current.play().catch(e => console.warn('[ScreenShareView] AutoPlay failed:', e));
+    } else {
+      console.log('[ScreenShareView] Missing screenStream or ref. screenStream:', !!screenStream);
     }
   }, [screenStream]);
 

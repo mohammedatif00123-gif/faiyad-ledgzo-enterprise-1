@@ -52,77 +52,120 @@ class GroupService {
   }
 
   async createGroup(data, req) {
-    const { name, description, memberIds, visibility, permissionsMatrix, avatar } = data;
+    const { name, description, memberIds = [], visibility, permissionsMatrix, avatar, encryptedKeys } = data;
     const creatorId = req.user.id;
-
-    const conversation = new Conversation({
-      name,
-      description,
-      type: 'channel', // Using channel for groups
-      visibility: visibility || 'private',
-      permissionsMatrix,
-      avatar,
-      createdBy: creatorId,
-      inviteLink: crypto.randomBytes(16).toString('hex')
-    });
-
-    await conversation.save();
-
-    // Add creator as owner
-    await ConversationMember.create({
-      conversation: conversation._id,
-      user: creatorId,
-      role: 'owner',
-      status: 'active',
-      addedBy: creatorId
-    });
-
-    let count = 1;
-    // Add initial members
-    if (memberIds && memberIds.length > 0) {
-      // Remove duplicates and creator from memberIds
-      const uniqueMemberIds = [...new Set(memberIds)].filter(id => id.toString() !== creatorId.toString());
+    
+    // 1. Validate encryptedKeys (E2EE)
+    const uniqueMemberIds = [...new Set(memberIds)].filter(id => id.toString() !== creatorId.toString());
+    const totalExpectedMembers = uniqueMemberIds.length + 1; // Including creator
+    
+    if (encryptedKeys) {
+      if (!Array.isArray(encryptedKeys)) {
+        throw new Error('encryptedKeys must be an array');
+      }
+      if (encryptedKeys.length !== totalExpectedMembers) {
+        throw new Error(`Invalid encryptedKeys count. Expected ${totalExpectedMembers}, got ${encryptedKeys.length}`);
+      }
       
-      if (uniqueMemberIds.length > 0) {
-        const membersToInsert = uniqueMemberIds.map(id => ({
+      const providedKeyUserIds = new Set();
+      for (const keyObj of encryptedKeys) {
+        if (!keyObj.user || !keyObj.encryptedKey || !keyObj.encryptedKey.iv || !keyObj.encryptedKey.ciphertext) {
+          throw new Error('Invalid encryptedKey structure. Missing user, iv, or ciphertext.');
+        }
+        providedKeyUserIds.add(keyObj.user.toString());
+      }
+      
+      // Ensure the creator and all unique members are in the providedKeyUserIds
+      if (!providedKeyUserIds.has(creatorId.toString())) {
+        throw new Error('encryptedKeys must include a key for the creator');
+      }
+      for (const memberId of uniqueMemberIds) {
+        if (!providedKeyUserIds.has(memberId.toString())) {
+          throw new Error(`encryptedKeys missing key for member ${memberId}`);
+        }
+      }
+    }
+
+    const mongoose = require('mongoose');
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      console.debug('[E2EE-Group] Validating and processing group creation...');
+      
+      const conversation = new Conversation({
+        name,
+        description,
+        type: 'channel', // Using channel for groups
+        visibility: visibility || 'private',
+        permissionsMatrix,
+        avatar,
+        createdBy: creatorId,
+        inviteLink: require('crypto').randomBytes(16).toString('hex'),
+        memberCount: totalExpectedMembers
+      });
+
+      await conversation.save({ session });
+
+      const membersToInsert = [{
         conversation: conversation._id,
-        user: id,
-        role: 'member',
+        user: creatorId,
+        role: 'owner',
         status: 'active',
         addedBy: creatorId
-      }));
-        await ConversationMember.insertMany(membersToInsert);
-        count += uniqueMemberIds.length;
-      }
-    }
+      }];
 
-    conversation.memberCount = count;
-    await conversation.save();
-
-    await this.logAudit(req, conversation._id, 'Conversation', 'CREATE_GROUP', null, { name, visibility });
-    
-    // System message
-    await this.createSystemMessage(
-      conversation._id, 
-      `${req.user.firstName} created the group.`, 
-      'GROUP_CREATED', 
-      req
-    );
-
-    if (memberIds && memberIds.length > 0) {
-      const uniqueMemberIds = [...new Set(memberIds)].filter(id => id.toString() !== creatorId.toString());
       if (uniqueMemberIds.length > 0) {
-        await this.createSystemMessage(
-          conversation._id, 
-          `${req.user.firstName} added ${uniqueMemberIds.length} participants.`, 
-          'MEMBER_ADDED', 
-          req
-        );
+        uniqueMemberIds.forEach(id => {
+          membersToInsert.push({
+            conversation: conversation._id,
+            user: id,
+            role: 'member',
+            status: 'active',
+            addedBy: creatorId
+          });
+        });
       }
-    }
 
-    return conversation;
+      await ConversationMember.insertMany(membersToInsert, { session });
+
+      if (encryptedKeys && encryptedKeys.length > 0) {
+        console.debug(`[E2EE-Group] Inserting ${encryptedKeys.length} GroupKey records...`);
+        const GroupKey = require('../models/GroupKey');
+        const keysToInsert = encryptedKeys.map(ek => ({
+          conversation: conversation._id,
+          user: ek.user,
+          encryptedKey: ek.encryptedKey,
+          encryptedBy: creatorId,
+          version: 1
+        }));
+        await GroupKey.insertMany(keysToInsert, { session });
+      } else {
+        console.warn(`[E2EE-Group] WARNING: Group created without encryptedKeys! (conversationId: ${conversation._id})`);
+      }
+
+      await session.commitTransaction();
+      session.endSession();
+
+      await this.logAudit(req, conversation._id, 'Conversation', 'CREATE_GROUP', null, { name, visibility });
+      
+      await this.createSystemMessage(
+        conversation._id, 
+        `${req.user.firstName} created the group.`, 
+        'GROUP_CREATED', 
+        req
+      );
+
+      return conversation;
+    } catch (error) {
+      await session.abortTransaction();
+      session.endSession();
+      console.error('[E2EE-Group] Transaction rolled back due to error:', error);
+      throw error;
+    }
   }
+
+
 
   async addMembers(conversationId, newMemberIds, req) {
     // Check permission

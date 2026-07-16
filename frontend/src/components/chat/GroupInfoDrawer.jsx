@@ -18,7 +18,7 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
   const [searchQuery, setSearchQuery] = useState('');
 
   const [showAddMember, setShowAddMember] = useState(false);
-  const { isReady: isE2EEReady, getSharedSecret, getGroupKey } = useE2EE();
+  const { isReady: isE2EEReady, getSharedSecret, getGroupKey, cacheGroupKey } = useE2EE();
 
   const fetchMembers = () => {
     if (conversation) {
@@ -81,8 +81,13 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
     try {
       if (!isE2EEReady) throw new Error('E2EE not ready');
       
-      const groupKey = await getGroupKey(conversation._id);
-      if (!groupKey) throw new Error('You do not have the group key, cannot resend.');
+      let groupKey;
+      try {
+        groupKey = await getGroupKey(conversation._id);
+        if (!groupKey) throw new Error('No key');
+      } catch (e) {
+        throw new Error('Cannot resend: You do not possess the current group key.');
+      }
       
       const jwk = await exportAESKey(groupKey);
       const jwkString = JSON.stringify(jwk);
@@ -110,19 +115,35 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
       const confirmReencrypt = window.confirm('Are you sure you want to re-encrypt the group key for all members? Use this if some members cannot decrypt messages.');
       if (!confirmReencrypt) return;
 
-      const groupKey = await getGroupKey(conversation._id);
-      if (!groupKey) throw new Error('You do not have the group key, cannot re-encrypt.');
+      let groupKey;
+      try {
+        groupKey = await getGroupKey(conversation._id);
+        if (!groupKey) throw new Error('No key');
+      } catch (e) {
+        throw new Error('Cannot re-encrypt: You do not possess the current group key. If it is permanently lost, you must generate a new master key.');
+      }
       
       const jwk = await exportAESKey(groupKey);
       const jwkString = JSON.stringify(jwk);
       
       const encryptedKeys = [];
+      const uniqueMembers = new Map();
+      
       for (const m of members) {
-        const sharedSecret = await getSharedSecret(m.user._id);
+        const memberId = m.user?._id || m.user?.id || m.user;
+        if (!memberId) continue;
+        if (!uniqueMembers.has(memberId)) {
+          uniqueMembers.set(memberId, m);
+        }
+      }
+
+      for (const m of uniqueMembers.values()) {
+        const memberId = m.user?._id || m.user?.id || m.user;
+        const sharedSecret = await getSharedSecret(memberId);
         if (sharedSecret) {
            const encrypted = await encryptText(sharedSecret, jwkString);
            encryptedKeys.push({
-             userId: m.user._id,
+             userId: memberId,
              encryptedKey: encrypted
            });
         }
@@ -139,6 +160,58 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
     }
   };
 
+  const handleRegenerateMasterKey = async () => {
+    try {
+      if (!isE2EEReady) throw new Error('E2EE not ready');
+      
+      const confirmRegen = window.confirm('WARNING: Generating a new master key will permanently lock all past messages for everyone. Only do this if the original key is permanently lost.\n\nAre you sure you want to proceed?');
+      if (!confirmRegen) return;
+
+      const { generateAESKey } = await import('../../utils/cryptoService');
+      const newGroupKey = await generateAESKey();
+      
+      if (typeof cacheGroupKey === 'function') {
+        cacheGroupKey(conversation._id, newGroupKey);
+      }
+      
+      const jwk = await exportAESKey(newGroupKey);
+      const jwkString = JSON.stringify(jwk);
+      
+      const encryptedKeys = [];
+      const uniqueMembers = new Map();
+      const newVersion = Date.now(); // Safe versioning timestamp
+      
+      for (const m of members) {
+        const memberId = m.user?._id || m.user?.id || m.user;
+        if (!memberId) continue;
+        if (!uniqueMembers.has(memberId)) {
+          uniqueMembers.set(memberId, m);
+        }
+      }
+
+      for (const m of uniqueMembers.values()) {
+        const memberId = m.user?._id || m.user?.id || m.user;
+        const sharedSecret = await getSharedSecret(memberId);
+        if (sharedSecret) {
+           const encrypted = await encryptText(sharedSecret, jwkString);
+           encryptedKeys.push({
+             userId: memberId,
+             encryptedKey: encrypted
+           });
+        }
+      }
+      
+      await api.put(`/chat/conversations/${conversation._id}/keys/reencrypt`, {
+        keys: encryptedKeys,
+        version: newVersion
+      });
+      
+      alert('New Master Group Key generated and broadcasted successfully!');
+    } catch (error) {
+      console.error(error);
+      alert('Failed to regenerate master key: ' + error.message);
+    }
+  };
 
   const [activeMenuId, setActiveMenuId] = useState(null);
 
@@ -393,6 +466,14 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
                         Re-encrypt Group Key for All Members
                       </button>
                       <p className="text-xs text-muted-foreground px-2">Use this if members are seeing "Decryption Failed" errors after getting a new device.</p>
+                      
+                      <button 
+                        onClick={handleRegenerateMasterKey}
+                        className="w-full text-left text-sm p-2 text-red-500 hover:bg-red-500/10 rounded font-medium flex items-center justify-between mt-2"
+                      >
+                        Regenerate Master Key (Destructive)
+                      </button>
+                      <p className="text-xs text-red-400/80 px-2">Emergency only. Generates a new key version. Locks all past messages permanently.</p>
                     </div>
                   )}
                 </div>

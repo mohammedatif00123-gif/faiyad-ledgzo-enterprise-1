@@ -43,14 +43,28 @@ export const E2EEProvider = ({ children }) => {
         let storedJwk = await getPrivateKey(user._id || user.id);
         let keyPair = null;
 
+        if (!storedJwk) {
+          // If not in IndexedDB, check if the server has our master key (from another browser)
+          try {
+            const res = await api.get('/keys/me');
+            if (res.data.data && res.data.data.length > 0 && res.data.data[0].privateKey) {
+              storedJwk = res.data.data[0].privateKey;
+              await storePrivateKey(user._id || user.id, storedJwk);
+              console.log('[E2EE] Downloaded and cached private key from server');
+            }
+          } catch (err) {
+            console.log('[E2EE] No keys found on server or error fetching:', err);
+          }
+        }
+
         if (storedJwk) {
           // We have it, load it
           const importedPrivKey = await importPrivateKey(storedJwk);
           setPrivateKey(importedPrivKey);
-          console.log('[E2EE] Loaded existing private key from IndexedDB');
+          console.log('[E2EE] Loaded existing private key from IndexedDB/Server');
         } else {
           // 2. Generate new key pair
-          console.log('[E2EE] Generating new ECDH key pair for user...');
+          console.log('[E2EE] Generating new master ECDH key pair for user...');
           keyPair = await generateECDHKeyPair();
           
           // Export keys
@@ -61,15 +75,16 @@ export const E2EEProvider = ({ children }) => {
           await storePrivateKey(user._id || user.id, privJwk);
           setPrivateKey(keyPair.privateKey);
 
-          // 3. Upload public key to server
+          // 3. Upload BOTH public and private keys to server
           const deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
           localStorage.setItem('deviceId', deviceId); // Ensure consistent device ID
           
           await api.post('/keys/upload', {
             deviceId,
-            publicKey: pubJwk
+            publicKey: pubJwk,
+            privateKey: privJwk
           });
-          console.log('[E2EE] Public key uploaded successfully');
+          console.log('[E2EE] Keys uploaded successfully to server');
         }
         setIsReady(true);
       } catch (error) {
@@ -93,16 +108,25 @@ export const E2EEProvider = ({ children }) => {
       const res = await api.get(`/keys/${partnerId}`);
       if (res.data.data && res.data.data.length > 0) {
         let jwk;
+        let selectedKey = null;
         const currentUserId = user?._id || user?.id;
         
         if (partnerId === currentUserId) {
           const myDeviceId = localStorage.getItem('deviceId');
-          const myKey = res.data.data.find(k => k.deviceId === myDeviceId);
-          jwk = myKey ? myKey.publicKey : res.data.data[0].publicKey;
+          selectedKey = res.data.data.find(k => k.deviceId === myDeviceId && !k.isDeprecated) || 
+                        res.data.data.find(k => k.deviceId === myDeviceId) || 
+                        res.data.data[0];
         } else {
-          // Just take the first active device key for now
-          jwk = res.data.data[0].publicKey;
+          // 1. Prioritize non-deprecated keys
+          const activeKeys = res.data.data.filter(k => !k.isDeprecated);
+          // 2. If no non-deprecated keys exist, fallback to all keys (historical compatibility)
+          const searchSet = activeKeys.length > 0 ? activeKeys : res.data.data;
+          // 3. Find the Canonical Master Key (the one synced with privateKey), else fallback to most recent
+          selectedKey = searchSet.find(k => k.hasPrivateKey) || searchSet[0];
         }
+        
+        console.log(`[E2EE] Selected public key ID ${selectedKey._id} for encryption/decryption with partner ${partnerId}`);
+        jwk = selectedKey.publicKey;
         
         const cryptoKey = await importPublicKey(jwk);
         publicKeyCache.current.set(partnerId, cryptoKey);
@@ -186,48 +210,80 @@ export const E2EEProvider = ({ children }) => {
     throw new Error('Failed to decrypt direct message with any available keys');
   };
 
-  // Group Keys Cache (Map of conversationId -> CryptoKey)
+  // Group Keys Cache (Map of conversationId -> { [version]: { key: CryptoKey, raw: Object } })
   const groupKeyCache = React.useRef(new Map());
 
-  const getGroupKey = async (conversationId) => {
-    if (groupKeyCache.current.has(conversationId)) {
-      return groupKeyCache.current.get(conversationId);
-    }
+  const getGroupKey = async (conversationId, version = null) => {
+    let convCache = groupKeyCache.current.get(conversationId);
 
-    try {
-      const res = await api.get(`/keys/group/${conversationId}`);
-      if (res.data.success && res.data.data) {
-        const { encryptedKey, creatorId } = res.data.data;
-        
-        const sharedSecrets = await getAllSharedSecrets(creatorId);
-        if (!sharedSecrets || sharedSecrets.length === 0) throw new Error('Could not derive any secret with group creator');
-
-        let jwkString = null;
-        for (const secret of sharedSecrets) {
-          try {
-            jwkString = await decryptText(secret, encryptedKey.iv, encryptedKey.ciphertext);
-            break; // Success!
-          } catch (e) {
-            console.warn('[E2EE] A secret failed to decrypt group key:', e);
-            // Ignore and try next secret
+    // If cache miss for the conversation, fetch ALL keys from server
+    if (!convCache) {
+      try {
+        const res = await api.get(`/keys/group/${conversationId}`);
+        if (res.data.success && res.data.data && res.data.data.length > 0) {
+          convCache = { keys: new Map(), latestVersion: 0 };
+          
+          for (const keyData of res.data.data) {
+            const v = keyData.version || 1;
+            convCache.keys.set(v, { raw: keyData, cryptoKey: null });
+            if (v > convCache.latestVersion) {
+              convCache.latestVersion = v;
+            }
           }
+          groupKeyCache.current.set(conversationId, convCache);
         }
-        
-        if (!jwkString) {
-          console.error('[E2EE] FATAL: Failed to decrypt group key with any of the creator\'s public keys. creatorId:', creatorId, 'sharedSecrets count:', sharedSecrets.length, 'encryptedKey:', encryptedKey);
-          throw new Error("Failed to decrypt group key with any of the creator's public keys");
-        }
-
-        const jwk = JSON.parse(jwkString);
-        const cryptoKey = await importAESKey(jwk);
-        
-        groupKeyCache.current.set(conversationId, cryptoKey);
-        return cryptoKey;
+      } catch (err) {
+        console.error('[E2EE] Failed to fetch group keys for', conversationId, err);
+        return null;
       }
-    } catch (err) {
-      console.error('[E2EE] Failed to get group key for', conversationId, err);
     }
-    return null;
+
+    if (!convCache) return null;
+
+    const targetVersion = version || convCache.latestVersion;
+    const keyEntry = convCache.keys.get(targetVersion);
+
+    if (!keyEntry) {
+      console.error(`[E2EE] Group key version ${targetVersion} not found for ${conversationId}`);
+      return null;
+    }
+
+    // If already decrypted and imported, return it
+    if (keyEntry.cryptoKey) {
+      return { key: keyEntry.cryptoKey, version: targetVersion };
+    }
+
+    // Otherwise, decrypt it now
+    try {
+      const { encryptedKey, creatorId, encryptedBy } = keyEntry.raw;
+      const encryptorId = encryptedBy || creatorId;
+      
+      const sharedSecrets = await getAllSharedSecrets(encryptorId);
+      if (!sharedSecrets || sharedSecrets.length === 0) throw new Error(`Could not derive any secret with encryptor ${encryptorId}`);
+
+      let jwkString = null;
+      for (const secret of sharedSecrets) {
+        try {
+          jwkString = await decryptText(secret, encryptedKey.iv, encryptedKey.ciphertext);
+          break; // Success!
+        } catch (e) {
+          // Normal, try next
+        }
+      }
+      
+      if (!jwkString) {
+        throw new Error("Failed to decrypt group key with any of the encryptor's public keys");
+      }
+
+      const jwk = JSON.parse(jwkString);
+      const cryptoKey = await importAESKey(jwk);
+      
+      keyEntry.cryptoKey = cryptoKey;
+      return { key: cryptoKey, version: targetVersion };
+    } catch (err) {
+      console.error('[E2EE] Failed to decrypt group key version', targetVersion, err);
+      return null;
+    }
   };
 
   const refreshGroupKey = async (conversationId) => {
@@ -237,23 +293,38 @@ export const E2EEProvider = ({ children }) => {
 
   const encryptGroupMessage = async (plaintext, conversationId) => {
     if (!isReady) throw new Error('E2EE not ready');
-    const groupKey = await getGroupKey(conversationId);
-    if (!groupKey) throw new Error('No group key available');
+    const groupKeyData = await getGroupKey(conversationId);
+    if (!groupKeyData) throw new Error('No group key available');
 
-    const { iv, ciphertext } = await encryptText(groupKey, plaintext);
-    return { ciphertext, iv };
+    const { iv, ciphertext } = await encryptText(groupKeyData.key, plaintext);
+    return { ciphertext, iv, keyVersion: groupKeyData.version };
   };
 
-  const decryptGroupMessage = async (ciphertext, iv, conversationId) => {
+  const decryptGroupMessage = async (ciphertext, iv, conversationId, keyVersion = null) => {
     if (!isReady) throw new Error('E2EE not ready');
-    const groupKey = await getGroupKey(conversationId);
-    if (!groupKey) throw new Error('No group key available');
+    const groupKeyData = await getGroupKey(conversationId, keyVersion);
+    if (!groupKeyData) throw new Error('No group key available');
 
     try {
-      return await decryptText(groupKey, iv, ciphertext);
+      return await decryptText(groupKeyData.key, iv, ciphertext);
     } catch (err) {
       console.error('[E2EE] Failed to decrypt group message content:', err, 'ciphertext:', ciphertext.substring(0, 20) + '...', 'iv:', iv);
-      throw err;
+      
+      // The group key might have been re-encrypted (recovery key generated).
+      // Invalidate the cache and attempt to fetch the latest key from the server.
+      groupKeyCache.current.delete(conversationId);
+      
+      try {
+        console.log('[E2EE] Cache invalidated. Attempting to fetch new group key and retry decryption...');
+        const newGroupKey = await getGroupKey(conversationId);
+        if (newGroupKey) {
+          return await decryptText(newGroupKey, iv, ciphertext);
+        }
+      } catch (retryErr) {
+        console.error('[E2EE] Retry decryption failed after cache invalidation', retryErr);
+      }
+
+      throw err; // If retry also fails, throw original error
     }
   };
 

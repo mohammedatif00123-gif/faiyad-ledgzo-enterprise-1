@@ -78,16 +78,16 @@ export function SocketProvider({ children }) {
           const convs = conversationsRef.current || [];
           const conv = convs.find(c => c._id?.toString() === message.conversation?.toString());
           if (conv?.type === 'direct') {
-            const partnerId = conv.participants?.map(p => p._id || p).find(id => id !== currentUserId) || senderId;
+            const partnerId = conv.partnerId || conv.participants?.map(p => p._id || p).find(id => id !== currentUserId) || senderId;
             const targetId = senderId === currentUserId ? partnerId : senderId;
             decryptedContent = await currentE2EE.decryptDirectMessage(message.content, message.iv, targetId);
           } else if (conv?.type === 'channel' || conv?.type === 'group') {
-            decryptedContent = await currentE2EE.decryptGroupMessage(message.content, message.iv, message.conversation);
+            decryptedContent = await currentE2EE.decryptGroupMessage(message.content, message.iv, message.conversation, message.keyVersion);
           }
           message.content = decryptedContent;
         } catch (err) {
           console.error('[E2EE] Failed to decrypt incoming message:', err);
-          message.content = '🔒 [Encrypted Message - Decryption Failed]';
+          message.content = '🔒 Unable to decrypt message';
         }
       }
 
