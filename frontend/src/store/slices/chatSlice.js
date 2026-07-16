@@ -101,6 +101,11 @@ const chatSlice = createSlice({
     },
     setActiveConversation: (state, action) => {
       state.activeConversation = action.payload;
+      if (action.payload) {
+        localStorage.setItem('selectedConversationId', action.payload);
+      } else {
+        localStorage.removeItem('selectedConversationId');
+      }
       state.activeThread = null; // Close thread when switching channel
       if (action.payload && state.readReceipts[action.payload]) {
         state.readReceipts[action.payload] = 0;
@@ -166,6 +171,18 @@ const chatSlice = createSlice({
           if (state.activeConversation !== conversationId) {
             state.readReceipts[conversationId] = (state.readReceipts[conversationId] || 0) + 1;
           }
+        }
+      }
+      
+      // Move conversation to top for real-time ordering
+      if (!message._id.toString().startsWith('temp_')) {
+        const convIndex = state.conversations.findIndex(c => c._id === conversationId);
+        if (convIndex > 0) {
+          const [conv] = state.conversations.splice(convIndex, 1);
+          conv.updatedAt = new Date().toISOString();
+          state.conversations.unshift(conv);
+        } else if (convIndex === 0) {
+          state.conversations[0].updatedAt = new Date().toISOString();
         }
       }
     },

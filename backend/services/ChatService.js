@@ -59,6 +59,9 @@ class ChatService {
       uniqueResult.push(conv);
     }
 
+    // Sort by latest activity
+    uniqueResult.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
     return uniqueResult;
   }
 

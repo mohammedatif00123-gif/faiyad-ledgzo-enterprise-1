@@ -22,6 +22,17 @@ router.post('/start', async (req, res, next) => {
   }
 });
 
+// Cancel Invitation
+router.post('/:callId/cancel-invitation', async (req, res, next) => {
+  try {
+    const { targetUserId } = req.body;
+    const callSession = await CallService.cancelInvitation(req.params.callId, targetUserId, req.user._id);
+    sendResponse(res, 200, 'Invitation cancelled', { callSession });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Accept Call
 router.post('/:id/accept', async (req, res, next) => {
   try {

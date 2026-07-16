@@ -16,17 +16,28 @@ export default function ChatPage() {
     // Fetch initial conversations
     api.get('/chat/conversations')
       .then(res => {
-        dispatch(setConversations(res.data.data));
+        const convs = res.data.data;
+        dispatch(setConversations(convs));
+
+        // Set active conversation from localStorage if valid
+        const activeId = localStorage.getItem('selectedConversationId');
+        if (activeId) {
+          if (convs.find(c => c._id === activeId)) {
+            dispatch({ type: 'chat/setActiveConversation', payload: activeId });
+          } else {
+            localStorage.removeItem('selectedConversationId');
+          }
+        }
       })
       .catch(console.error);
   }, [dispatch]);
 
   return (
     <div className="h-full relative">
-      <ChatLayout 
+      <ChatLayout
         isConversationActive={!!activeConversation}
-        sidebar={<ChatSidebar socket={socket} />} 
-        area={<ChatArea socket={socket} />} 
+        sidebar={<ChatSidebar socket={socket} />}
+        area={<ChatArea socket={socket} />}
       />
     </div>
   );

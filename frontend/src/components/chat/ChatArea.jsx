@@ -38,6 +38,11 @@ export function ChatArea({ socket }) {
   const parentRef = useRef(null);
   const messagesEndRef = useRef(null);
 
+  const isAtBottomRef = useRef(true);
+  const initialScrollDone = useRef({});
+  const lastMessageIdRef = useRef(null);
+  const [showNewMessagesBtn, setShowNewMessagesBtn] = useState(false);
+
   const [contextMenu, setContextMenu] = useState(null);
   const [replyTo, setReplyTo] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
@@ -150,9 +155,31 @@ export function ChatArea({ socket }) {
     setSearchQuery('');
   }, [activeConversation, dispatch, isE2EEReady]);
 
+  useEffect(() => {
+    if (activeConversation) {
+      isAtBottomRef.current = true;
+      setShowNewMessagesBtn(false);
+      
+      // Auto-focus input
+      setTimeout(() => {
+        const input = document.getElementById('chat-message-input');
+        if (input) input.focus();
+      }, 100);
+    }
+  }, [activeConversation]);
+
   const handleScroll = async () => {
     if (!parentRef.current || isFetchingMore || isSearchActive) return;
-    if (parentRef.current.scrollTop < 100) {
+    
+    const { scrollTop, scrollHeight, clientHeight } = parentRef.current;
+    const atBottom = scrollHeight - scrollTop - clientHeight < 150;
+    isAtBottomRef.current = atBottom;
+    
+    if (atBottom) {
+      setShowNewMessagesBtn(false);
+    }
+
+    if (scrollTop < 100) {
       if (hasMoreHistory[activeConversation]) {
         fetchMoreHistory();
       }
@@ -229,9 +256,25 @@ export function ChatArea({ socket }) {
 
   useEffect(() => {
     if (rowVirtualizer.getTotalSize() > 0 && displayedMessages.length > 0 && !isSearchActive && !isFetchingMore) {
-      rowVirtualizer.scrollToIndex(displayedMessages.length - 1, { align: 'end' });
+      const lastMsg = displayedMessages[displayedMessages.length - 1];
+      const isMyMessage = (lastMsg.sender?._id || lastMsg.sender?.id || lastMsg.sender) === (user?._id || user?.id);
+      
+      const isInitial = !initialScrollDone.current[activeConversation];
+      const isNewMessage = lastMessageIdRef.current !== lastMsg._id;
+
+      if (isInitial || (isNewMessage && (isMyMessage || isAtBottomRef.current))) {
+        requestAnimationFrame(() => {
+          rowVirtualizer.scrollToIndex(displayedMessages.length - 1, { align: 'end' });
+          initialScrollDone.current[activeConversation] = true;
+          setShowNewMessagesBtn(false);
+        });
+      } else if (isNewMessage && !isAtBottomRef.current && !isMyMessage) {
+        setShowNewMessagesBtn(true);
+      }
+      
+      lastMessageIdRef.current = lastMsg._id;
     }
-  }, [lastMessageId, rowVirtualizer, isSearchActive]);
+  }, [displayedMessages, rowVirtualizer, isSearchActive, activeConversation, user]);
 
   useEffect(() => {
     if (!socket || !activeConversation || !currentMessages.length) return;
@@ -683,6 +726,20 @@ export function ChatArea({ socket }) {
 
           <div ref={messagesEndRef} className="h-4" />
         </div>
+
+        {showNewMessagesBtn && (
+          <button
+            onClick={() => {
+              rowVirtualizer.scrollToIndex(displayedMessages.length - 1, { align: 'end' });
+              setShowNewMessagesBtn(false);
+            }}
+            className="absolute bottom-20 right-8 z-50 flex items-center justify-center w-10 h-10 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 transition-all text-emerald-500 animate-bounce"
+          >
+            <div className="flex flex-col items-center">
+              <span className="text-[12px] font-bold mt-[-2px]">⬇</span>
+            </div>
+          </button>
+        )}
 
         {!selectionMode && (
           <MessageInput

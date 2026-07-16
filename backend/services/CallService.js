@@ -3,7 +3,6 @@ const CallParticipant = require('../models/CallParticipant');
 const MessageRepository = require('../repositories/MessageRepository');
 const PresenceService = require('./PresenceService');
 const { AppError } = require('../utils/errors');
-const { getIO } = require('../sockets');
 
 class CallService {
   async _isUserBusy(userId) {
@@ -23,6 +22,8 @@ class CallService {
   }
 
   async startCall({ conversationId, callerId, participants, callType = 'voice' }) {
+    const { getIO } = require('../sockets');
+
     // 1. Check if caller is already in a call
     if (await this._isUserBusy(callerId)) {
       throw new AppError('You are already in a call', 400);
@@ -45,13 +46,6 @@ class CallService {
     if (callParticipants.length === 1) {
       if (await this._isUserBusy(callParticipants[0])) {
         throw new AppError('User is busy on another call', 409);
-      }
-
-      // Check if receiver is offline
-      const receiverPresence = await PresenceService.getMyPresence(callParticipants[0]);
-      if (!receiverPresence || receiverPresence.status === 'Offline') {
-        await this._createSystemMessage(conversationId, callerId, '📞 Missed voice call');
-        throw new AppError('User is offline. Call cannot be completed.', 400);
       }
     }
 
@@ -129,6 +123,8 @@ class CallService {
   }
 
   async acceptCall(callId, userId) {
+    const { getIO } = require('../sockets');
+
     const callSession = await CallSession.findById(callId);
     if (!callSession) throw new AppError('Call not found', 404);
 
@@ -196,6 +192,8 @@ class CallService {
   }
 
   async inviteParticipant(callId, newUserId, inviterId) {
+    const { getIO } = require('../sockets');
+
     const callSession = await CallSession.findById(callId);
     if (!callSession) throw new AppError('Call not found', 404);
     if (callSession.status === 'Ended' || callSession.status === 'Cancelled') {
@@ -212,6 +210,44 @@ class CallService {
       callSession.participants.push(newUserId);
       await callSession.save();
     }
+
+    // 1. Create CallParticipant in 'invited' state
+    const participant = new CallParticipant({
+      callSession: callId,
+      user: newUserId,
+      joinedAt: null, // explicit null
+      leftAt: null,
+      connectionState: 'invited'
+    });
+    await participant.save();
+
+    // 2. Set Ringing Timeout
+    const timeoutSeconds = parseInt(process.env.CALL_RING_TIMEOUT) || 60;
+    setTimeout(async () => {
+      try {
+        const CallParticipant = require('../models/CallParticipant');
+        const p = await CallParticipant.findById(participant._id);
+        
+        // If still invited and hasn't joined or left
+        if (p && !p.leftAt && !p.joinedAt && p.connectionState === 'invited') {
+          p.leftAt = new Date();
+          p.connectionState = 'missed';
+          await p.save();
+          
+          const io = getIO();
+          if (io) {
+            io.to(`user_${newUserId.toString()}`).emit('call_missed', { callId });
+            // Notify the room that the participant missed the call
+            io.to(`room_${callSession.conversation.toString()}`).emit('participant_missed', { 
+              callId, 
+              userId: newUserId 
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Add participant timeout error:', err);
+      }
+    }, timeoutSeconds * 1000);
 
     // Emit call_invite to the new user
     const inviter = await require('../models/User').findById(inviterId);
@@ -234,28 +270,102 @@ class CallService {
     return callSession;
   }
 
+  async cancelInvitation(callId, targetUserId, callerId) {
+    const { getIO } = require('../sockets');
+    
+    const callSession = await CallSession.findById(callId);
+    if (!callSession) throw new AppError('Call not found', 404);
+
+    // Only allow if call is still active
+    if (callSession.status === 'Ended' || callSession.status === 'Cancelled') {
+      throw new AppError('Cannot cancel invitation for a closed call', 400);
+    }
+
+    // Find the pending invitation
+    const participant = await CallParticipant.findOne({
+      callSession: callId,
+      user: targetUserId,
+      joinedAt: null,
+      leftAt: null,
+      connectionState: 'invited'
+    });
+
+    if (!participant) {
+      throw new AppError('No pending invitation found for this user', 404);
+    }
+
+    participant.leftAt = new Date();
+    participant.connectionState = 'cancelled';
+    await participant.save();
+
+    // Emit event to dismiss the incoming call UI for the target user
+    const io = getIO();
+    if (io) {
+      io.to(`user_${targetUserId.toString()}`).emit('call_cancelled', { callId });
+    }
+
+    return callSession;
+  }
+
+
   async rejectCall(callId, userId) {
     const callSession = await CallSession.findById(callId);
     if (!callSession) throw new Error('Call not found');
 
-    callSession.status = 'Rejected';
-    callSession.endReason = 'rejected';
-    callSession.endedAt = new Date();
-    await callSession.save();
+    // 1. Mark this specific user as rejected
+    let participant = await CallParticipant.findOne({ callSession: callId, user: userId });
+    if (!participant) {
+      participant = new CallParticipant({
+        callSession: callId,
+        user: userId,
+        joinedAt: new Date(),
+        leftAt: new Date(),
+        connectionState: 'rejected'
+      });
+      await participant.save();
+    } else {
+      participant.leftAt = new Date();
+      participant.connectionState = 'rejected';
+      await participant.save();
+    }
 
-    // Mark participant as left
-    await CallParticipant.updateMany(
-      { callSession: callId, leftAt: null },
-      { $set: { leftAt: new Date(), connectionState: 'closed' } }
-    );
+    // 2. Check if the entire call should be ended
+    const activeCount = await CallParticipant.countDocuments({ callSession: callId, leftAt: null });
+    const respondedCount = await CallParticipant.countDocuments({ callSession: callId });
+    const totalParticipants = callSession.participants.length;
 
-    // Generate System Message
+    // Generate System Message for this user's rejection
     const User = require('../models/User');
     const u = await User.findById(userId);
     await this._createSystemMessage(callSession.conversation, userId, `${u.firstName} declined the call`);
 
-    // Reset Caller Presence
-    await PresenceService.setStatus(callSession.initiatedBy, 'Online', getIO());
+    const { getIO } = require('../sockets');
+    const io = getIO();
+
+    if (activeCount < 2 && respondedCount >= totalParticipants) {
+      // Everyone has responded, and less than 2 people are active. End the session.
+      callSession.status = callSession.status === 'Ringing' ? 'Rejected' : 'Ended';
+      callSession.endReason = callSession.status === 'Ringing' ? 'rejected' : 'completed';
+      callSession.endedAt = new Date();
+      await callSession.save();
+
+      // Reset Caller Presence
+      await PresenceService.setStatus(callSession.initiatedBy, 'Online', io);
+      
+      if (io) {
+        io.to(`room_${callSession.conversation}`).emit('call_reject', { callId });
+      }
+    } else {
+      // It's a group call and someone rejected, but others might still be ringing or active.
+      // Notify others in the call that this specific participant left/rejected
+      if (io) {
+        callSession.participants.forEach(pId => {
+          if (pId.toString() !== userId.toString()) {
+             io.to(`user_${pId.toString()}`).emit('participant_left', { callId: callSession._id, userId });
+          }
+        });
+      }
+    }
 
     return callSession;
   }
@@ -336,6 +446,7 @@ class CallService {
   }
 
   async handleTimeout(callId) {
+    const { getIO } = require('../sockets');
     const callSession = await CallSession.findById(callId);
     if (!callSession || callSession.status !== 'Ringing') return;
 
@@ -357,6 +468,7 @@ class CallService {
   }
 
   async handleUserDisconnect(userId) {
+    const { getIO } = require('../sockets');
     // Find all active call participations for this user
     const activeParticipations = await CallParticipant.find({ user: userId, leftAt: null });
 
@@ -410,24 +522,32 @@ class CallService {
     if (activeParticipant) {
       callSessionId = activeParticipant.callSession;
     } else {
-      // 2. If no active participant record, check if they are INVITED to an incoming Ringing call
-      const incomingCall = await CallSession.findOne({
+      // 2. If no active participant record, check if they are INVITED to an incoming call
+      // The call might be Ringing, or already Connected by another group member.
+      const incomingCalls = await CallSession.find({
         participants: userId,
-        status: 'Ringing'
-      }).sort({ startedAt: -1 });
+        status: { $in: ['Ringing', 'Connecting', 'Connected'] }
+      }).sort({ startedAt: -1 }).limit(5); // check the most recent few
 
-      if (incomingCall) {
-        // Ensure this isn't a stale call using configurable timeout
-        const timeoutSeconds = parseInt(process.env.CALL_RING_TIMEOUT) || 60;
-        const secondsSinceStart = (new Date() - new Date(incomingCall.startedAt)) / 1000;
-        
-        if (secondsSinceStart < timeoutSeconds) {
-          callSessionId = incomingCall._id;
-        } else {
-           // Clean up stale ringing call
-           incomingCall.status = 'Missed';
-           incomingCall.endedAt = new Date();
-           await incomingCall.save();
+      for (const call of incomingCalls) {
+        // Ensure they haven't ALREADY participated and left this specific call
+        const pastParticipation = await CallParticipant.findOne({
+          user: userId,
+          callSession: call._id
+        });
+
+        // Consider it active if there's no past participation, OR if it's explicitly a pending invitation
+        if (!pastParticipation || (pastParticipation.connectionState === 'invited' && !pastParticipation.leftAt && !pastParticipation.joinedAt)) {
+          const timeoutSeconds = parseInt(process.env.CALL_RING_TIMEOUT) || 60;
+          
+          // Calculate time based on when the participant was invited (or when the call started if no participant record yet)
+          const startTime = pastParticipation ? pastParticipation.createdAt : call.startedAt;
+          const secondsSinceStart = (new Date() - new Date(startTime)) / 1000;
+          
+          if (secondsSinceStart < timeoutSeconds) {
+            callSessionId = call._id;
+            break; // Found the active incoming call
+          }
         }
       }
     }
@@ -441,13 +561,7 @@ class CallService {
 
     if (!callSession) return null;
 
-    // Check if the call is in a valid active state
-    const activeStates = ['Ringing', 'Connecting', 'Connected'];
-    if (activeStates.includes(callSession.status)) {
-      return callSession;
-    }
-
-    return null;
+    return callSession;
   }
 
   async getCallHistory(userId, filters = {}) {
@@ -466,6 +580,10 @@ class CallService {
       messageType: 'system',
       systemAction: 'call_log'
     });
+
+    // Update Conversation updatedAt for ordering
+    const Conversation = require('../models/Conversation');
+    await Conversation.findByIdAndUpdate(conversationId, { updatedAt: new Date() });
 
     const { getIO } = require('../sockets');
     const io = getIO();

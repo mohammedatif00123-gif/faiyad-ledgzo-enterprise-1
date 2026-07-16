@@ -550,6 +550,7 @@ export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCanc
             </div>
           ) : (
             <textarea
+              id="chat-message-input"
               ref={textareaRef}
               value={content}
               onChange={handleTextChange}

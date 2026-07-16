@@ -41,6 +41,10 @@ class MessageService {
       mentions: data.mentions || []
     });
 
+    // Update Conversation updatedAt for ordering
+    const Conversation = require('../models/Conversation');
+    await Conversation.findByIdAndUpdate(data.conversationId, { updatedAt: new Date() });
+
     const populated = await MessageRepository.model.findById(message._id)
       .populate('sender', 'firstName lastName avatar')
       .populate('attachments')
