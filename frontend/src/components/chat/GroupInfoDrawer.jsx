@@ -236,7 +236,8 @@ export function GroupInfoDrawer({ conversation, isOpen, onClose, onSearchClick }
   };
 
   const filteredMembers = members.filter(m => {
-    const fullName = `${m.user?.firstName || ''} ${m.user?.lastName || ''}`.toLowerCase();
+    if (!m.user) return false;
+    const fullName = `${m.user.firstName || ''} ${m.user.lastName || ''}`.toLowerCase();
     return fullName.includes(searchQuery.toLowerCase());
   });
 

@@ -1,8 +1,8 @@
 import React from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ChevronDown, Reply, Forward, Copy, Pin, Trash2, Info, Star, SmilePlus } from 'lucide-react';
+import { ChevronDown, Reply, Forward, Copy, Pin, Trash2, Info, Star, SmilePlus, Edit2 } from 'lucide-react';
 
-export function MessageActions({ isOwn, onReply, onForward, onCopy, onPin, onStar, onDeleteForMe, onDeleteForEveryone }) {
+export function MessageActions({ isOwn, onReply, onForward, onCopy, onPin, onStar, onInfo, onEdit, onDeleteForMe, onDeleteForEveryone }) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -41,10 +41,16 @@ export function MessageActions({ isOwn, onReply, onForward, onCopy, onPin, onSta
             <Star className="w-4 h-4" /> Star Message
           </DropdownMenu.Item>
 
-          <DropdownMenu.Item className="flex items-center gap-2 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 rounded-lg cursor-pointer outline-none">
+          <DropdownMenu.Item onClick={onInfo} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 rounded-lg cursor-pointer outline-none">
             <Info className="w-4 h-4" /> Message Info
           </DropdownMenu.Item>
           
+          {isOwn && (
+            <DropdownMenu.Item onClick={onEdit} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 rounded-lg cursor-pointer outline-none">
+              <Edit2 className="w-4 h-4" /> Edit Message
+            </DropdownMenu.Item>
+          )}
+
           <DropdownMenu.Separator className="h-[1px] bg-slate-700 my-1" />
           
           <DropdownMenu.Item onClick={onDeleteForMe} className="flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-lg cursor-pointer outline-none">

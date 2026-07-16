@@ -33,9 +33,9 @@ exports.getReplies = async (req, res) => {
 exports.editMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
-    const { content, reason } = req.body;
+    const { content, reason, iv, keyVersion } = req.body;
     const userId = req.user.id;
-    const message = await MessageService.editMessage(messageId, userId, content, reason);
+    const message = await MessageService.editMessage(messageId, userId, content, reason, iv, keyVersion);
     
     getIO().to(`room_${message.conversation}`).emit('message_updated', message);
     sendResponse(res, 200, 'Message updated', message);
@@ -169,10 +169,33 @@ exports.getMessageHistory = async (req, res) => {
   }
 };
 
+exports.getMessageInfo = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const Message = require('../models/Message');
+    const message = await Message.findById(messageId)
+      .populate('sender', 'firstName lastName avatar email')
+      .populate('deliveredTo', 'firstName lastName avatar email')
+      .populate('readBy', 'firstName lastName avatar email');
+      
+    if (!message) {
+      return sendResponse(res, 404, 'Message not found', null);
+    }
+    
+    sendResponse(res, 200, 'Message info retrieved', {
+      deliveredTo: message.deliveredTo || [],
+      readBy: message.readBy || [],
+      status: message.status
+    });
+  } catch (error) {
+    sendResponse(res, 500, error.message, null, error);
+  }
+};
+
 exports.addBookmark = async (req, res) => {
   try {
     const { messageId } = req.params;
-    const { note } = req.body;
+    const { note } = req.body || {};
     const userId = req.user.id;
     const bookmark = await BookmarkService.addBookmark(userId, messageId, note);
     sendResponse(res, 201, 'Bookmark added', bookmark);

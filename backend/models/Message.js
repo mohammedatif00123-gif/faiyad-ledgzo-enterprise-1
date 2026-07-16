@@ -35,6 +35,8 @@ const messageSchema = new mongoose.Schema({
   iv: { type: String }, // Base64 encoded Initialization Vector
   keyVersion: { type: Number, default: 1 },
   status: { type: String, enum: ['sent', 'delivered', 'read'], default: 'sent' },
+  deliveredTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  readBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   scheduledFor: { type: Date }
 }, {
   timestamps: true

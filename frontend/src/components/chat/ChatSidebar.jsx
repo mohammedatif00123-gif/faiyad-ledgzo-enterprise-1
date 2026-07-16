@@ -90,7 +90,7 @@ export function ChatSidebar({ socket }) {
   });
 
   const channels = sortedConversations.filter(c => c.type === 'channel');
-  const directs = sortedConversations.filter(c => c.type === 'direct');
+  const directs = sortedConversations.filter(c => c.type === 'direct' && c.partnerId);
 
   const handleSelect = (id) => {
     dispatch(setActiveConversation(id));

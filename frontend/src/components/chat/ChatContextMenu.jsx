@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { MessageSquare, Forward, Edit2, Trash2, Pin, Star, Bookmark } from 'lucide-react';
+import { MessageSquare, Forward, Edit2, Trash2, Pin, Star, Bookmark, Info } from 'lucide-react';
 
 export function ChatContextMenu({ x, y, message, onClose, onAction, isOwn, role }) {
   if (!message) return null;
@@ -37,7 +37,12 @@ export function ChatContextMenu({ x, y, message, onClose, onAction, isOwn, role 
         <Pin className="w-4 h-4 text-muted-foreground" /> Pin Message
       </button>
       <button onClick={() => handleAction('bookmark')} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
-        <Bookmark className="w-4 h-4 text-muted-foreground" /> Bookmark
+        <Bookmark className="w-4 h-4 text-muted-foreground" /> Star Message
+      </button>
+
+      <div className="h-px bg-border my-1.5 mx-2" />
+      <button onClick={() => handleAction('info')} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
+        <Info className="w-4 h-4 text-muted-foreground" /> Message Info
       </button>
 
       {canEdit && (

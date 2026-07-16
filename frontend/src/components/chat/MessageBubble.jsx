@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import 'highlight.js/styles/github-dark.css'; 
+import 'highlight.js/styles/github-dark.css';
 import { Avatar } from '../ui/Avatar';
 import { ReactionBar } from './ReactionBar';
-import { Reply, Forward, Phone, Calendar, CheckSquare, Square } from 'lucide-react';
+import { Reply, Forward, Phone, Calendar, CheckSquare, Square, Star, Pin, Lock } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { MessageTicks } from './MessageTicks';
 import { MessageActions } from './MessageActions';
@@ -20,19 +20,23 @@ const DocumentCard = React.lazy(() => import('./DocumentCard'));
 const VideoPlayer = React.lazy(() => import('./VideoPlayer'));
 const { MessageCode } = React.lazy(() => import('./MessageCode').then(m => ({ default: m.MessageCode })));
 
-export const MessageBubble = React.memo(({ 
-  message, 
-  isOwn, 
-  onReply, 
-  onForward, 
-  onDeleteForMe, 
-  onDeleteForEveryone, 
-  onReact, 
+export const MessageBubble = React.memo(({
+  message,
+  isOwn,
+  onReply,
+  onForward,
+  onDeleteForMe,
+  onDeleteForEveryone,
+  onReact,
   onPin,
+  onStar,
+  onAction,
   isSelectingMode,
   isSelected,
   onToggleSelect,
-  searchQuery
+  searchQuery,
+  isPinned,
+  isStarred
 }) => {
   const { user } = useSelector(state => state.auth);
   const [isHovered, setIsHovered] = useState(false);
@@ -54,7 +58,7 @@ export const MessageBubble = React.memo(({
 
   const renderAttachments = () => {
     if (!message.attachments || message.attachments.length === 0) return null;
-    
+
     if (message.messageType === 'voice' || message.isVoice) {
       const att = message.attachments[0];
       if (typeof att === 'string') return <div className="h-10 w-40 bg-slate-700 animate-pulse rounded-full"></div>;
@@ -69,7 +73,7 @@ export const MessageBubble = React.memo(({
       <div className="flex flex-wrap gap-1 mb-1">
         {message.attachments.map((att) => {
           if (typeof att === 'string') {
-             return <div key={att} className="w-[250px] h-16 bg-slate-700 animate-pulse rounded-lg"></div>;
+            return <div key={att} className="w-[250px] h-16 bg-slate-700 animate-pulse rounded-lg"></div>;
           }
           if (att.fileType === 'image') return <MessageImage key={att._id} attachment={att} message={message} />;
           if (att.fileType === 'code') {
@@ -138,16 +142,28 @@ export const MessageBubble = React.memo(({
 
   // Handle highlighted search query
   const renderContent = () => {
+    // If it's still raw ciphertext (e.g., E2EE context was loading when it arrived)
+    if (message.isEncrypted && message.content && (message.content.length > 20 && !message.content.includes(' '))) {
+      return (
+        <span className="italic flex items-center gap-2">
+          <Lock className="w-3 h-3" />
+          [Decrypting message...]
+        </span>
+      );
+    }
+    
     if (!message.content) return null;
     let content = message.content;
-    
+
+    if (!searchQuery) return <div className="prose prose-sm dark:prose-invert max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{content}</ReactMarkdown></div>;
+
     // Very basic highlight implementation
     if (searchQuery && content.toLowerCase().includes(searchQuery.toLowerCase())) {
       const parts = content.split(new RegExp(`(${searchQuery})`, 'gi'));
-      return parts.map((part, i) => 
-        part.toLowerCase() === searchQuery.toLowerCase() ? 
-        <mark key={i} className="bg-yellow-400 text-black px-0.5 rounded">{part}</mark> : 
-        part
+      return parts.map((part, i) =>
+        part.toLowerCase() === searchQuery.toLowerCase() ?
+          <mark key={i} className="bg-yellow-400 text-black px-0.5 rounded">{part}</mark> :
+          part
       );
     }
 
@@ -159,7 +175,7 @@ export const MessageBubble = React.memo(({
   };
 
   return (
-    <div 
+    <div
       className={`flex w-full mb-1 transition-all ${isSelectingMode ? 'cursor-pointer hover:bg-primary/5 pl-2 rounded-lg' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -172,46 +188,47 @@ export const MessageBubble = React.memo(({
       )}
 
       <div className={`flex w-full ${isOwn ? 'justify-end' : 'justify-start'}`}>
-        <div className={`flex max-w-[70%] md:max-w-[65%] ${isOwn ? 'flex-row-reverse' : 'flex-row'} items-start gap-2 group relative min-w-0`}>
-          
+        <div className={`flex max-w-[70%] md:max-w-[65%] ${isOwn ? 'flex-row-reverse' : 'flex-row'} items-start gap-2 group relative`}>
+
 
 
           <div className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'} relative min-w-0 w-full`}>
             {!isOwn && (
-               <span className="text-xs text-primary mb-1 ml-3 font-semibold">{message.sender?.firstName} {message.sender?.lastName}</span>
+              <span className="text-xs text-primary mb-1 ml-3 font-semibold">{message.sender?.firstName} {message.sender?.lastName}</span>
             )}
 
             {/* Chat Bubble */}
-            <div 
-              className={`relative px-3 py-2 shadow-[var(--ent-shadow)] min-w-[80px] max-w-full ${
-                isOwn 
-                  ? 'bg-[var(--own-bg)] text-[var(--own-text)]' 
+            <div
+              className={`relative px-3 py-2 shadow-[var(--ent-shadow)] min-w-[80px] ${isOwn
+                  ? 'bg-[var(--own-bg)] text-[var(--own-text)]'
                   : 'bg-[var(--other-bg)] text-[var(--other-text)]'
-              }`}
+                }`}
               style={{
                 borderRadius: isOwn ? 'var(--own-border-radius)' : 'var(--other-border-radius)'
               }}
             >
-              
+
               {/* Hover Actions inside bubble */}
               {!isSelectingMode && (
                 <div className={`absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-end z-20 w-16 h-8 bg-gradient-to-l ${isOwn ? 'from-[var(--own-bg)]' : 'from-[var(--other-bg)]'} to-transparent rounded-tr-lg pr-1`}>
                   <div className="flex items-center gap-0.5 pt-1">
                     <EmojiPicker onEmojiSelect={(emoji) => onReact && onReact(message._id, emoji)} isOwn={isOwn} />
-                    <MessageActions 
+                    <MessageActions
                       isOwn={isOwn}
                       onReply={() => onReply && onReply(message)}
                       onForward={() => onForward && onForward(message)}
                       onCopy={() => navigator.clipboard.writeText(message.content)}
+                      onEdit={() => onAction && onAction('edit', message)}
                       onPin={() => onPin && onPin(message)}
                       onStar={() => onStar && onStar(message)}
+                      onInfo={() => onAction && onAction('info', message)}
                       onDeleteForMe={() => onDeleteForMe && onDeleteForMe(message._id)}
                       onDeleteForEveryone={() => onDeleteForEveryone && onDeleteForEveryone(message._id)}
                     />
                   </div>
                 </div>
               )}
-              
+
               {message.isForwarded && (
                 <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mb-1 flex items-center gap-1">
                   <Forward className="w-3 h-3" /> Forwarded
@@ -219,7 +236,7 @@ export const MessageBubble = React.memo(({
               )}
 
               {message.parentMessage && (
-                <div 
+                <div
                   className="bg-black/5 dark:bg-black/20 rounded p-2 mb-1 text-sm border-l-4 border-primary cursor-pointer hover:bg-black/10 dark:hover:bg-black/30 transition-colors"
                 >
                   <div className="font-semibold text-primary text-xs mb-0.5">
@@ -240,10 +257,12 @@ export const MessageBubble = React.memo(({
                     {renderContent()}
                   </div>
                 )}
-                
+
                 {/* WhatsApp style time and ticks inside the bubble */}
                 <div className="flex items-center gap-1 mt-1 ml-3 shrink-0 self-end opacity-70">
                   {message.isEncrypted && <EncryptedBadge />}
+                  {isStarred && <Star className="w-3 h-3 fill-current text-slate-500 dark:text-slate-400" />}
+                  {isPinned && <Pin className="w-3 h-3 fill-current text-slate-500 dark:text-slate-400" />}
                   {message.isEdited && <span className="text-[10px] italic mr-1">edited</span>}
                   <span className="text-[10px] font-medium whitespace-nowrap">
                     {formatMessageTime(message.createdAt)}

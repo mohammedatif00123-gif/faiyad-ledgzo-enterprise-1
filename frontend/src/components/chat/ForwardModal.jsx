@@ -12,8 +12,11 @@ export function ForwardModal({ isOpen, onClose, onForward, count }) {
   if (!isOpen) return null;
 
   const filteredConvs = conversations.filter(c => 
-    c.name?.toLowerCase().includes(search.toLowerCase()) || 
-    (c.type === 'direct' && c.members?.some(m => m.user?.firstName?.toLowerCase().includes(search.toLowerCase())))
+    c.type === 'direct' && 
+    (
+      (c.name || '').toLowerCase().includes(search.toLowerCase()) || 
+      (c.members || c.participants || [])?.some(m => (m.user?.firstName || m.firstName || '')?.toLowerCase().includes(search.toLowerCase()))
+    )
   );
 
   const handleToggle = (id) => {
@@ -24,8 +27,10 @@ export function ForwardModal({ isOpen, onClose, onForward, count }) {
 
   const getConvName = (c) => {
     if (c.type === 'direct') {
-      const other = c.members.find(m => m.user?._id !== c.members[0].user?._id) || c.members[0];
-      return other?.user?.firstName + ' ' + other?.user?.lastName;
+      const parts = c.members || c.participants || [];
+      if (!parts.length) return c.name || 'Direct Message';
+      const other = parts.find(m => (m.user?._id || m._id) !== (parts[0].user?._id || parts[0]._id)) || parts[0];
+      return (other?.user?.firstName || other?.firstName || '') + ' ' + (other?.user?.lastName || other?.lastName || '');
     }
     return c.name;
   };

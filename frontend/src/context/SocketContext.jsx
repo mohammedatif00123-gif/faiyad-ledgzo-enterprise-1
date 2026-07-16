@@ -160,6 +160,39 @@ export function SocketProvider({ children }) {
       }));
     });
 
+    newSocket.on('message_updated', async (message) => {
+      if (!message || !message._id) return;
+      try {
+        const currentE2EE = e2eeRef.current;
+        let decryptedContent = message.content;
+        if (message.isEncrypted && currentE2EE?.isE2EEReady) {
+          const conv = conversationsRef.current.find(c => c._id === message.conversation);
+          const currentUserId = user?._id || user?.id;
+          const senderId = typeof message.sender === 'object' ? (message.sender._id || message.sender.id) : message.sender;
+          
+          if (conv?.type === 'direct') {
+            const partnerId = conv.partnerId || conv.participants?.map(p => p._id || p).find(id => id !== currentUserId) || senderId;
+            const targetId = senderId === currentUserId ? partnerId : senderId;
+            decryptedContent = await currentE2EE.decryptDirectMessage(message.content, message.iv, targetId);
+          } else if (conv?.type === 'channel' || conv?.type === 'group') {
+            decryptedContent = await currentE2EE.decryptGroupMessage(message.content, message.iv, message.conversation, message.keyVersion);
+          }
+        }
+        dispatch(updateMessage({
+          conversationId: message.conversation,
+          messageId: message._id,
+          updates: { content: decryptedContent, isEdited: true }
+        }));
+      } catch (err) {
+        console.error('[E2EE] Failed to decrypt edited message:', err);
+        dispatch(updateMessage({
+          conversationId: message.conversation,
+          messageId: message._id,
+          updates: { content: '🔒 Unable to decrypt edited message', isEdited: true }
+        }));
+      }
+    });
+
     newSocket.on('message_deleted', ({ conversationId, messageId }) => {
       if (!conversationId || !messageId) return;
       dispatch(markMessagesDeleted({ conversationId, messageIds: [messageId] }));

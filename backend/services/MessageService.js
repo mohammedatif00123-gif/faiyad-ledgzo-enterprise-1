@@ -41,9 +41,6 @@ class MessageService {
       mentions: data.mentions || []
     });
 
-    const Conversation = require('../models/Conversation');
-    await Conversation.findByIdAndUpdate(data.conversationId, { updatedAt: new Date() });
-
     const populated = await MessageRepository.model.findById(message._id)
       .populate('sender', 'firstName lastName avatar')
       .populate('attachments')
@@ -53,17 +50,21 @@ class MessageService {
     return populated;
   }
 
-  async editMessage(messageId, userId, newContent, reason) {
+  async editMessage(messageId, userId, newContent, reason, iv, keyVersion) {
     const message = await MessageRepository.findById(messageId);
     if (!message) throw new Error('Message not found');
     if (message.sender.toString() !== userId.toString()) throw new Error('Unauthorized');
 
     await HistoryRepository.saveHistory(messageId, message.content, userId, reason);
 
-    const updated = await MessageRepository.update(messageId, {
+    const updateData = {
       content: newContent,
       isEdited: true
-    });
+    };
+    if (iv) updateData.iv = iv;
+    if (keyVersion) updateData.keyVersion = keyVersion;
+
+    const updated = await MessageRepository.updateById(messageId, updateData);
 
     return await MessageRepository.model.findById(updated._id)
       .populate('sender', 'firstName lastName avatar')
@@ -97,6 +98,14 @@ class MessageService {
 
   async updateDeliveryStatus(messageId, status) {
     return await MessageRepository.updateById(messageId, { status });
+  }
+
+  async addReadReceipt(messageId, userId) {
+    return await MessageRepository.addReadReceipt(messageId, userId);
+  }
+
+  async addDeliveryReceipt(messageId, userId) {
+    return await MessageRepository.addDeliveryReceipt(messageId, userId);
   }
 }
 

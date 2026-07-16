@@ -12,6 +12,7 @@ export function useDecryptedMedia(attachment, message) {
   const [fileUrl, setFileUrl] = useState(null);
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [resolvedFileName, setResolvedFileName] = useState(null);
 
   const getRawUrl = (url) => {
     if (!url) return '';
@@ -85,14 +86,68 @@ export function useDecryptedMedia(attachment, message) {
         
         const decryptedBuffer = await decryptFile(fileKey, attachment.metadata.fileIv, arrayBuffer);
         
-        let mimeType = 'application/octet-stream';
-        if (attachment.fileType === 'image') mimeType = 'image/jpeg';
-        else if (attachment.fileType === 'video') mimeType = 'video/mp4';
-        else if (attachment.fileType === 'voice_note') mimeType = 'audio/webm';
-        else if (attachment.fileName?.endsWith('.pdf')) mimeType = 'application/pdf';
+        // Detect MIME type from actual file extension
+        const ext = attachment.fileName?.split('.').pop()?.toLowerCase() || '';
+        const mimeMap = {
+          // Images
+          jpg: 'image/jpeg', jpeg: 'image/jpeg',
+          png: 'image/png',
+          gif: 'image/gif',
+          webp: 'image/webp',
+          svg: 'image/svg+xml',
+          bmp: 'image/bmp',
+          // Videos
+          mp4: 'video/mp4',
+          webm: 'video/webm',
+          mov: 'video/quicktime',
+          avi: 'video/x-msvideo',
+          // Audio
+          mp3: 'audio/mpeg',
+          ogg: 'audio/ogg',
+          wav: 'audio/wav',
+          // Documents
+          pdf: 'application/pdf',
+          doc: 'application/msword',
+          docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          xls: 'application/vnd.ms-excel',
+          xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ppt: 'application/vnd.ms-powerpoint',
+          pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          txt: 'text/plain',
+          zip: 'application/zip',
+          rar: 'application/x-rar-compressed',
+        };
+        let mimeType = mimeMap[ext] || 'application/octet-stream';
+        // Fallback from fileType if ext not recognized
+        if (mimeType === 'application/octet-stream') {
+          if (attachment.fileType === 'image') mimeType = 'image/jpeg';
+          else if (attachment.fileType === 'video') mimeType = 'video/mp4';
+          else if (attachment.fileType === 'voice_note') mimeType = 'audio/webm';
+        }
 
         const blob = new Blob([decryptedBuffer], { type: mimeType });
         objectUrl = URL.createObjectURL(blob);
+
+        // Build a proper download filename with extension
+        const extFromMime = {
+          'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif',
+          'image/webp': 'webp', 'image/svg+xml': 'svg', 'image/bmp': 'bmp',
+          'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
+          'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/webm': 'webm',
+          'application/pdf': 'pdf',
+          'application/msword': 'doc',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+          'application/vnd.ms-excel': 'xls',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+          'text/plain': 'txt',
+          'application/zip': 'zip',
+        };
+        const derivedExt = ext && mimeMap[ext] ? ext : (extFromMime[mimeType] || 'bin');
+        const baseName = attachment.fileName
+          ? attachment.fileName.replace(/\.[^/.]+$/, '') // strip existing ext if any
+          : 'attachment';
+        const cleanName = /^[a-z0-9]{20,}$/i.test(baseName) ? 'attachment' : baseName; // replace random Cloudinary IDs
+        setResolvedFileName(`${cleanName}.${derivedExt}`);
         
         setFileUrl(objectUrl);
       } catch (err) {
@@ -110,5 +165,5 @@ export function useDecryptedMedia(attachment, message) {
     };
   }, [attachment, message, isE2EEReady, conversations, user]);
 
-  return { fileUrl, error, isLoading };
+  return { fileUrl, error, isLoading, resolvedFileName };
 }

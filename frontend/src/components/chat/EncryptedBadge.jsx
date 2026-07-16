@@ -1,5 +1,5 @@
 import React from 'react';
-import { Lock } from 'lucide-react';
+import { Lock as LockIcon } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip';
 
 export function EncryptedBadge({ className = '' }) {
@@ -8,7 +8,7 @@ export function EncryptedBadge({ className = '' }) {
       <Tooltip>
         <TooltipTrigger asChild>
           <span className={`inline-flex items-center text-green-500/80 ${className}`}>
-            <Lock className="w-3 h-3 ml-1" />
+            <LockIcon className="w-3 h-3 ml-1" />
           </span>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs">

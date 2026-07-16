@@ -12,6 +12,7 @@ import { GroupInfoDrawer } from './GroupInfoDrawer';
 import { DayHeader } from './DayHeader';
 import { DeleteModal } from './DeleteModal';
 import { ForwardModal } from './ForwardModal';
+import { MessageInfoModal } from './MessageInfoModal';
 import { groupMessagesByDay } from '../../utils/messageUtils';
 import api from '../../services/api';
 import { setMessages, prependMessages, setActiveThread, addMessage, removeMessagesBulk, markMessagesDeleted, updateMessage } from '../../store/slices/chatSlice';
@@ -31,7 +32,7 @@ const getMemberId = (member) => {
 export function ChatArea({ socket }) {
   const dispatch = useDispatch();
   const { user } = useSelector(state => state.auth);
-  const { conversations, activeConversation, messages, historyFetched = {}, activeThread, typing: stateTyping = {}, hasMoreHistory = {}, page = {} } = useSelector(state => state.chat);
+  const { conversations, activeConversation, messages, historyFetched = {}, activeThread, typing: stateTyping = {}, hasMoreHistory = {}, page = {}, pinnedMessages = {}, bookmarks = [] } = useSelector(state => state.chat);
   const { encryptDirectMessage, encryptGroupMessage, decryptDirectMessage, decryptGroupMessage, isReady: isE2EEReady } = useE2EE();
   
   const parentRef = useRef(null);
@@ -39,6 +40,7 @@ export function ChatArea({ socket }) {
 
   const [contextMenu, setContextMenu] = useState(null);
   const [replyTo, setReplyTo] = useState(null);
+  const [editingMessage, setEditingMessage] = useState(null);
   const [showInfo, setShowInfo] = useState(false);
 
   // Selection & Search State
@@ -50,6 +52,9 @@ export function ChatArea({ socket }) {
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showForwardModal, setShowForwardModal] = useState(false);
+  
+  const [selectedInfoMessage, setSelectedInfoMessage] = useState(null);
+  const [showInfoModal, setShowInfoModal] = useState(false);
 
   const conversation = conversations.find(c => c._id === activeConversation);
   const currentMessages = messages[activeConversation] || [];
@@ -313,6 +318,54 @@ export function ChatArea({ socket }) {
     setReplyTo(null);
   };
 
+  const handleEdit = async (messageId, newContent) => {
+    if (!activeConversation) return;
+
+    let contentToEmit = newContent;
+    let isEncrypted = false;
+    let ivToEmit = null;
+    let keyVersionToEmit = undefined;
+
+    if (isE2EEReady) {
+      if (conversation?.type === 'direct') {
+        const partnerId = partnerIdForDirect(conversation, user._id || user.id);
+        if (partnerId) {
+          try {
+            const encRes = await encryptDirectMessage(contentToEmit, partnerId);
+            contentToEmit = encRes.ciphertext;
+            ivToEmit = encRes.iv;
+            isEncrypted = true; 
+          } catch (err) {
+            console.error('[E2EE] Edit encryption failed', err);
+            return;
+          }
+        }
+      } else if (conversation?.type === 'channel' || conversation?.type === 'group') {
+        try {
+          const encRes = await encryptGroupMessage(contentToEmit, activeConversation);
+          contentToEmit = encRes.ciphertext;
+          ivToEmit = encRes.iv;
+          keyVersionToEmit = encRes.keyVersion;
+          isEncrypted = true;
+        } catch (err) {
+          console.error('[E2EE] Edit encryption failed', err);
+          return;
+        }
+      }
+    }
+
+    try {
+      await api.put(`/messages/${messageId}`, { 
+        content: contentToEmit,
+        iv: ivToEmit,
+        keyVersion: keyVersionToEmit
+      });
+      setEditingMessage(null);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleContextMenu = (x, y, message) => {
     setContextMenu({ x, y, message });
   };
@@ -323,6 +376,7 @@ export function ChatArea({ socket }) {
 
   const handleContextAction = async (action, message) => {
     if (action === 'reply') setReplyTo(message);
+    if (action === 'edit') setEditingMessage(message);
     if (action === 'thread') dispatch(setActiveThread(message._id));
     if (['delete_me', 'delete_everyone', 'forward'].includes(action)) {
       setSelectionMode(action);
@@ -333,6 +387,10 @@ export function ChatArea({ socket }) {
     }
     if (action === 'bookmark') {
       try { await api.post(`/messages/${message._id}/bookmarks`); } catch (err) { console.error(err); }
+    }
+    if (action === 'info') {
+      setSelectedInfoMessage(message);
+      setShowInfoModal(true);
     }
   };
 
@@ -374,12 +432,72 @@ export function ChatArea({ socket }) {
 
   const confirmForward = async (targetConversations) => {
     try {
-      await api.post('/messages/bulk-forward', { messageIds: selectedMessages, targetConversationIds: targetConversations });
+      if (!socket) return;
+      
+      const msgsToForward = currentMessages.filter(m => selectedMessages.includes(m._id));
+      
+      for (const targetConvId of targetConversations) {
+        const targetConv = conversations.find(c => c._id === targetConvId);
+        if (!targetConv) continue;
+        
+        const isEncryptedConv = targetConv.type === 'direct' || targetConv.type === 'channel' || targetConv.type === 'group';
+        
+        for (const msg of msgsToForward) {
+          let contentToEmit = msg.content || "";
+          let isEncrypted = false;
+          let ivToEmit = null;
+          let keyVersionToEmit = undefined;
+          
+          if (isEncryptedConv && isE2EEReady) {
+            if (targetConv.type === 'direct') {
+              const partnerId = partnerIdForDirect(targetConv, user._id || user.id);
+              if (partnerId) {
+                try {
+                  const encRes = await encryptDirectMessage(contentToEmit, partnerId);
+                  contentToEmit = encRes.ciphertext;
+                  ivToEmit = encRes.iv;
+                  isEncrypted = true;
+                } catch (err) {
+                  console.error('[E2EE] Forward encryption failed', err);
+                  continue; // skip this message for this target
+                }
+              }
+            } else {
+              try {
+                const encRes = await encryptGroupMessage(contentToEmit, targetConv._id);
+                contentToEmit = encRes.ciphertext;
+                ivToEmit = encRes.iv;
+                keyVersionToEmit = encRes.keyVersion;
+                isEncrypted = true;
+              } catch (err) {
+                console.error('[E2EE] Forward encryption failed', err);
+                continue; // skip this message for this target
+              }
+            }
+          }
+          
+          socket.emit('sendMessage', {
+            conversationId: targetConvId,
+            content: contentToEmit,
+            attachments: msg.attachments || [],
+            messageType: msg.messageType || 'text',
+            parentMessage: null, // do not forward replies as replies in the new chat
+            isEncrypted,
+            iv: ivToEmit,
+            keyVersion: keyVersionToEmit,
+            isForwarded: true,
+            forwardSource: msg._id
+          });
+        }
+      }
+      
+      toast.success('Messages forwarded successfully');
       setSelectionMode(null);
       setSelectedMessages([]);
       setShowForwardModal(false);
     } catch (err) {
-      console.error(err);
+      console.error('Forward failed', err);
+      toast.error('Failed to forward messages');
     }
   };
 
@@ -502,6 +620,9 @@ export function ChatArea({ socket }) {
                       onDeleteForEveryone={(id) => handleContextAction('delete_everyone', msg)}
                       onPin={(m) => handleContextAction('pin', m)}
                       onStar={(m) => handleContextAction('bookmark', m)}
+                      isPinned={pinnedMessages[activeConversation]?.some(p => p.message?._id === msg._id)}
+                      isStarred={bookmarks?.some(b => b.message?._id === msg._id)}
+                      onAction={handleContextAction}
                       onReact={(id, emoji) => {
                         // Optimistic update
                         const msg = currentMessages.find(m => m._id === id);
@@ -567,6 +688,7 @@ export function ChatArea({ socket }) {
           <MessageInput
             conversationId={activeConversation}
             onSend={handleSend}
+            onEdit={handleEdit}
             onTyping={(isTyping) => {
               if (socket && activeConversation) {
                 socket.emit('typing', { conversationId: activeConversation, isTyping });
@@ -574,6 +696,8 @@ export function ChatArea({ socket }) {
             }}
             replyTo={replyTo}
             onCancelReply={() => setReplyTo(null)}
+            editingMessage={editingMessage}
+            onCancelEdit={() => setEditingMessage(null)}
           />
         )}
       </div>
@@ -612,6 +736,16 @@ export function ChatArea({ socket }) {
         onClose={() => setShowForwardModal(false)}
         onForward={confirmForward}
         count={selectedMessages.length}
+      />
+
+      <MessageInfoModal
+        isOpen={showInfoModal}
+        onClose={() => {
+          setShowInfoModal(false);
+          setSelectedInfoMessage(null);
+        }}
+        message={selectedInfoMessage}
+        isGroup={conversation?.type === 'group' || conversation?.type === 'channel'}
       />
     </div>
   );

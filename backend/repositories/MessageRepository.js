@@ -75,6 +75,22 @@ class MessageRepository extends BaseRepository {
       { returnDocument: 'after' }
     );
   }
+
+  async addReadReceipt(messageId, userId) {
+    return await this.model.findByIdAndUpdate(
+      messageId,
+      { $addToSet: { readBy: userId, deliveredTo: userId } },
+      { returnDocument: 'after' }
+    );
+  }
+
+  async addDeliveryReceipt(messageId, userId) {
+    return await this.model.findByIdAndUpdate(
+      messageId,
+      { $addToSet: { deliveredTo: userId } },
+      { returnDocument: 'after' }
+    );
+  }
 }
 
 module.exports = new MessageRepository();

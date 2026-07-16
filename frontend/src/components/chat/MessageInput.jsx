@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Paperclip, Smile, Send, Mic, AtSign, Code, Image as ImageIcon, Square, Trash2, X, Loader2, UploadCloud } from 'lucide-react';
+import { Paperclip, Smile, Send, Mic, AtSign, Code, Image as ImageIcon, Square, Trash2, X, Loader2, UploadCloud, Edit2 } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { saveDraft } from '../../store/slices/chatSlice';
 import EmojiPicker from 'emoji-picker-react';
@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 // Lazy load MentionDropdown
 const MentionDropdown = React.lazy(() => import('./MentionDropdown'));
 
-export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCancelReply }) {
+export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCancelReply, editingMessage, onEdit, onCancelEdit }) {
   const dispatch = useDispatch();
   const { drafts, conversations } = useSelector(state => state.chat);
   const { user } = useSelector(state => state.auth);
@@ -39,6 +39,15 @@ export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCanc
   const emojiPickerRef = useRef(null);
   const textareaRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    if (editingMessage) {
+      setContent(editingMessage.content || '');
+      textareaRef.current?.focus();
+    } else {
+      setContent(drafts[draftKey] || '');
+    }
+  }, [editingMessage, draftKey, drafts]);
 
   // Fetch employees for mentions
   useEffect(() => {
@@ -269,7 +278,14 @@ export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCanc
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (!content.trim() && selectedFiles.length === 0 && !voiceBlob) return;
+    if (!content.trim() && !voiceBlob && selectedFiles.length === 0) return;
+
+    if (editingMessage) {
+      if (onEdit) onEdit(editingMessage._id, content.trim());
+      setContent('');
+      if (onCancelEdit) onCancelEdit();
+      return;
+    }
     
     setIsUploading(true);
     let attachmentIds = [];
@@ -457,6 +473,16 @@ export function MessageInput({ conversationId, onSend, onTyping, replyTo, onCanc
               selectedIndex={mentionIndex}
             />
           </React.Suspense>
+        )}
+
+        {editingMessage && (
+          <div className="flex items-center justify-between bg-primary/10 p-2 rounded-t-md text-sm border-l-4 border-primary mb-1">
+            <div className="truncate">
+              <span className="font-semibold text-primary"><Edit2 className="w-3 h-3 inline mr-1" /> Edit Message: </span>
+              <span className="text-muted-foreground">{editingMessage.content || 'Media Message'}</span>
+            </div>
+            <button type="button" onClick={onCancelEdit} className="text-muted-foreground hover:text-foreground">×</button>
+          </div>
         )}
 
         {replyTo && (

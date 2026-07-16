@@ -213,6 +213,7 @@ export function ChatHeader({ conversation, onToggleInfo, onSearchClick, socket }
         <GroupCallInitiateModal
           conversationId={conversation._id}
           callType={pendingCallType}
+          currentUserId={user.id}
           onClose={() => { setShowGroupCallInitiate(false); setPendingCallType(null); }}
           onStartCall={handleGroupCallInitiate}
         />

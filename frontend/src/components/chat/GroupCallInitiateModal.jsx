@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import api from '../../services/api';
 import { getAvatarUrl } from '../../utils/avatar';
 
-export function GroupCallInitiateModal({ conversationId, callType, onClose, onStartCall }) {
+export function GroupCallInitiateModal({ conversationId, callType, onClose, onStartCall, currentUserId }) {
   const [members, setMembers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
@@ -13,11 +13,13 @@ export function GroupCallInitiateModal({ conversationId, callType, onClose, onSt
   useEffect(() => {
     api.get(`/chat/conversations/${conversationId}/members`)
       .then(res => {
-        setMembers(res.data.data || []);
+        // Filter out current user from member list
+        const allMembers = res.data.data || [];
+        setMembers(allMembers.filter(m => m.user && m.user._id !== currentUserId));
       })
       .catch(console.error)
       .finally(() => setIsLoading(false));
-  }, [conversationId]);
+  }, [conversationId, currentUserId]);
 
   const toggleSelect = (id) => {
     if (selectedIds.includes(id)) {

@@ -23,6 +23,7 @@ router.delete('/:messageId/reactions', messageController.removeReaction);
 
 // History
 router.get('/:messageId/history', messageController.getMessageHistory);
+router.get('/:messageId/info', messageController.getMessageInfo);
 
 // Bookmarks
 router.post('/:messageId/bookmarks', messageController.addBookmark);
