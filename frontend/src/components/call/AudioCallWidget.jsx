@@ -115,7 +115,7 @@ export function AudioCallWidget({ socket }) {
     }
   }, [activeCall?.status]);
 
-  if (!activeCall || activeCall.status === 'Ringing' || activeCall.status === 'Ended' || activeCall.status === 'Rejected' || activeCall.callType === 'video') {
+  if (!activeCall || activeCall.status === 'Ringing' || activeCall.status === 'Ended' || activeCall.status === 'Rejected' || activeCall.callType === 'video' || activeCall.callType === 'screen_share') {
     return null;
   }
 

@@ -10,7 +10,8 @@ export function ScreenShareView({
   participants,
   remoteStreams,
   localStream,
-  localUserId
+  localUserId,
+  isPreparing
 }) {
   const mainVideoRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -29,11 +30,10 @@ export function ScreenShareView({
 
   useEffect(() => {
     if (mainVideoRef.current && screenStream) {
-      console.log('[ScreenShareView] Mounting screenStream:', screenStream.id, 'Tracks:', screenStream.getTracks().map(t => `${t.kind} (${t.enabled ? 'enabled' : 'disabled'})`));
+      // Force a re-bind to ensure track replacements are caught
+      mainVideoRef.current.srcObject = null;
       mainVideoRef.current.srcObject = screenStream;
-      mainVideoRef.current.play().catch(e => console.warn('[ScreenShareView] AutoPlay failed:', e));
-    } else {
-      console.log('[ScreenShareView] Missing screenStream or ref. screenStream:', !!screenStream);
+      mainVideoRef.current.play().catch(e => console.error('[ScreenShareView] Autoplay failed:', e));
     }
   }, [screenStream]);
 
@@ -45,24 +45,34 @@ export function ScreenShareView({
       
       {/* Main Screen Share Area */}
       <div className="flex-1 relative bg-black rounded-2xl overflow-hidden border border-white/10 flex flex-col items-center justify-center group">
-        <video 
-          ref={mainVideoRef}
-          autoPlay
-          playsInline
-          className={`w-full h-full ${isFullscreen ? 'object-cover' : 'object-contain'}`}
-        />
-        <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 shadow-lg">
-          <p className="text-white font-medium text-sm flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            {presenterName} is sharing their screen
-          </p>
-        </div>
-        <button 
-          onClick={toggleFullscreen}
-          className="absolute bottom-4 right-4 bg-black/60 hover:bg-black/80 text-white p-2 rounded-lg border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
-        >
-          {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-        </button>
+        {isPreparing ? (
+          <div className="flex flex-col items-center justify-center h-full w-full bg-gray-900/50">
+            <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
+            <h2 className="text-xl font-medium text-white">Preparing Screen Share...</h2>
+            <p className="text-gray-400 mt-2">Waiting for screen selection</p>
+          </div>
+        ) : (
+          <>
+            <video 
+              ref={mainVideoRef}
+              autoPlay
+              playsInline
+              className={`w-full h-full ${isFullscreen ? 'object-cover' : 'object-contain'}`}
+            />
+            <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 shadow-lg">
+              <p className="text-white font-medium text-sm flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                {presenterName} is sharing their screen
+              </p>
+            </div>
+            <button 
+              onClick={toggleFullscreen}
+              className="absolute bottom-4 right-4 bg-black/60 hover:bg-black/80 text-white p-2 rounded-lg border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+            </button>
+          </>
+        )}
       </div>
 
       {/* Side Strip for Participants */}

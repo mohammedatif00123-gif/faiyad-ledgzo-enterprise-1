@@ -442,7 +442,6 @@ export function useWebRTC(socket, callId, myUserId) {
   const [callStatus, setCallStatus] = useState('idle');
   const [localMediaStream, setLocalMediaStream] = useState(null);
   const [remoteMediaStreams, setRemoteMediaStreams] = useState({});
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
 
   const { getSharedSecret, getGroupKey, isReady: isE2EEReady } = useE2EE();
   const e2eeKeyRef = useRef(null);
@@ -780,15 +779,7 @@ export function useWebRTC(socket, callId, myUserId) {
       if (outgoingVideoTrack) {
         pc.addTrack(outgoingVideoTrack, localStream.current);
         console.log('[useWebRTC] Added outgoing video track for:', targetUserId, outgoingVideoTrack.kind);
-      } else if (pc.addTransceiver) {
-        // Always ensure a video transceiver exists so dynamic screen sharing tracks are accepted
-        pc.addTransceiver('video', { direction: 'recvonly' });
-        console.log('[useWebRTC] Added recvonly video transceiver for dynamic screen sharing');
       }
-    } else if (pc.addTransceiver) {
-      // If no localStream at all, still add transceivers to receive
-      pc.addTransceiver('audio', { direction: 'recvonly' });
-      pc.addTransceiver('video', { direction: 'recvonly' });
     }
 
     pc._initialNegotiationDone = isInitiator;
@@ -957,10 +948,6 @@ export function useWebRTC(socket, callId, myUserId) {
       if (activeTrack) {
         ensureTrackOnAllPeers(activeTrack);
       }
-
-      if (screenStreamRef.current) {
-        socket.emit('screen_share_start', { targetUserId });
-      }
     }, 2000);
 
   }, [createPeerConnection, ensurePeerConnections, ensureTrackOnAllPeers, myUserId, activeCall]);
@@ -974,6 +961,19 @@ export function useWebRTC(socket, callId, myUserId) {
       if (pc.signalingState !== 'stable') {
         console.warn('[useWebRTC] Ignoring offer in non-stable state:', pc.signalingState);
         return;
+      }
+
+      // Ensure we can receive video if the offer includes it (e.g. for screen sharing in an audio call)
+      if (offer.sdp && offer.sdp.includes('m=video') && pc.getTransceivers) {
+        const hasVideoTransceiver = pc.getTransceivers().some(t => t.receiver && t.receiver.track && t.receiver.track.kind === 'video');
+        if (!hasVideoTransceiver) {
+          try {
+            pc.addTransceiver('video', { direction: 'recvonly' });
+            console.log('[useWebRTC] Added video transceiver for incoming video in handleOffer');
+          } catch (e) {
+            console.error('[useWebRTC] Failed to add video transceiver:', e);
+          }
+        }
       }
 
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
@@ -1085,48 +1085,47 @@ export function useWebRTC(socket, callId, myUserId) {
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       screenStreamRef.current = displayStream;
-      setIsScreenSharing(true);
       const screenTrack = displayStream.getVideoTracks()[0];
 
-      console.log(`[ScreenShare] Broadcasting to ${peerConnections.current.size} peers`);
-      
-      for (const [targetUserId, pc] of peerConnections.current.entries()) {
-        console.log(`[ScreenShare] Adding screen track to peer: ${targetUserId}`);
-        
+      peerConnections.current.forEach(pc => {
         const senders = pc.getSenders();
         const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-        
         if (videoSender) {
-          // Replace existing video track with screen track
           videoSender.replaceTrack(screenTrack).then(() => {
-            console.log(`[ScreenShare] Replaced video track for ${targetUserId}`);
-          }).catch(console.error);
-        } else {
-          // Add new video track if none exists
+            console.log('[useWebRTC] Screen track replaced, triggering renegotiation');
+          }).catch(err => {
+            console.error('[useWebRTC] Failed to replace track:', err);
+            if (localStream.current && !senders.some(s => s.track === screenTrack)) {
+              pc.addTrack(screenTrack, localStream.current);
+            }
+          });
+        } else if (localStream.current) {
           pc.addTrack(screenTrack, localStream.current);
-          console.log(`[ScreenShare] Added new video track for ${targetUserId}`);
         }
-        
-        // Trigger renegotiation
-        if (pc.signalingState === 'stable') {
-          pc.createOffer().then(offer => {
-            return pc.setLocalDescription(offer).then(() => {
-              socket.emit('webrtc_offer', {
-                targetUserId,
-                callId,
-                offer
-              });
-            });
-          }).catch(console.error);
-        }
-        
-        // Broadcast to ALL participants via socket
-        socket.emit('screen_share_start', { 
-          targetUserId,
-          callId,
-          from: myUserId
-        });
+      });
+
+      // Trigger renegotiation for all peers after a brief delay
+      await new Promise(resolve => setTimeout(resolve, 200));
+      for (const [targetUserId, pc] of peerConnections.current.entries()) {
+        const triggerNegotiation = () => {
+          if (pc.signalingState === 'stable') {
+            void scheduleNegotiation(targetUserId, pc);
+          } else {
+            const onStable = () => {
+              if (pc.signalingState === 'stable') {
+                pc.removeEventListener('signalingstatechange', onStable);
+                void scheduleNegotiation(targetUserId, pc);
+              }
+            };
+            pc.addEventListener('signalingstatechange', onStable);
+          }
+        };
+        triggerNegotiation();
       }
+
+      peerConnections.current.forEach((_, peerId) => {
+        socket.emit('screen_share_start', { targetUserId: peerId });
+      });
 
       screenTrack.onended = () => {
         stopScreenShare();
@@ -1145,39 +1144,39 @@ export function useWebRTC(socket, callId, myUserId) {
     if (screenStreamRef.current) {
       screenStreamRef.current.getTracks().forEach(t => t.stop());
       screenStreamRef.current = null;
-      setIsScreenSharing(false);
     }
 
     peerConnections.current.forEach(pc => {
-      const transceivers = pc.getTransceivers();
-      const videoTransceiver = transceivers.find(t => t.receiver && t.receiver.track && t.receiver.track.kind === 'video');
-      
-      if (videoTransceiver) {
-        if (videoTrack) {
-          videoTransceiver.direction = 'sendrecv';
-          videoTransceiver.sender.replaceTrack(videoTrack).then(() => {
-            console.log('[useWebRTC] Camera track restored, triggering renegotiation');
-          }).catch(err => {
-            console.error('[useWebRTC] Failed to restore track:', err);
-          });
-        } else {
-          // If no camera track, we revert to audio only by setting direction to recvonly
-          videoTransceiver.direction = 'recvonly';
-          videoTransceiver.sender.replaceTrack(null).catch(console.error);
-          console.log('[useWebRTC] No camera track, reverting to audio-only');
-        }
+      const senders = pc.getSenders();
+      const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+      if (videoSender && videoTrack) {
+        videoSender.replaceTrack(videoTrack).then(() => {
+          console.log('[useWebRTC] Camera track restored, triggering renegotiation');
+        }).catch(err => {
+          console.error('[useWebRTC] Failed to restore track:', err);
+        });
       }
     });
 
     // Trigger renegotiation for all peers after a brief delay
-    (async () => {
-      await new Promise(resolve => setTimeout(resolve, 200));
+    setTimeout(() => {
       for (const [targetUserId, pc] of peerConnections.current.entries()) {
-        if (pc.signalingState === 'stable') {
-          void scheduleNegotiation(targetUserId, pc);
-        }
+        const triggerNegotiation = () => {
+          if (pc.signalingState === 'stable') {
+            void scheduleNegotiation(targetUserId, pc);
+          } else {
+            const onStable = () => {
+              if (pc.signalingState === 'stable') {
+                pc.removeEventListener('signalingstatechange', onStable);
+                void scheduleNegotiation(targetUserId, pc);
+              }
+            };
+            pc.addEventListener('signalingstatechange', onStable);
+          }
+        };
+        triggerNegotiation();
       }
-    })();
+    }, 200);
 
     peerConnections.current.forEach((_, peerId) => {
       socket.emit('screen_share_stop', { targetUserId: peerId });
@@ -1249,7 +1248,6 @@ export function useWebRTC(socket, callId, myUserId) {
     isInCall,
     callStatus,
     localMediaStream,
-    remoteMediaStreams,
-    isScreenSharing
+    remoteMediaStreams
   };
 }

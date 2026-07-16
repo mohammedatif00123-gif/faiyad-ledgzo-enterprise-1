@@ -3,10 +3,12 @@ import api from '../../services/api';
 
 const initialState = {
   conversations: [],
-  activeConversation: localStorage.getItem('activeConversation') || null,
+  activeConversation: null,
   activeThread: null, // thread root message ID
   messages: {}, // { conversationId: [messages] }
   historyFetched: {}, // { conversationId: boolean }
+  hasMoreHistory: {}, // { conversationId: boolean }
+  page: {}, // { conversationId: number }
   threadMessages: {}, // { threadRootId: [messages] }
   typing: {}, // { conversationId: { userId: boolean } }
   readReceipts: {}, // { conversationId: unreadCount }
@@ -93,18 +95,12 @@ const chatSlice = createSlice({
       state.conversations = state.conversations.filter(c => c._id !== action.payload);
       if (state.activeConversation === action.payload) {
         state.activeConversation = null;
-        localStorage.removeItem('activeConversation');
       }
       delete state.messages[action.payload];
       delete state.readReceipts[action.payload];
     },
     setActiveConversation: (state, action) => {
       state.activeConversation = action.payload;
-      if (action.payload) {
-        localStorage.setItem('activeConversation', action.payload);
-      } else {
-        localStorage.removeItem('activeConversation');
-      }
       state.activeThread = null; // Close thread when switching channel
       if (action.payload && state.readReceipts[action.payload]) {
         state.readReceipts[action.payload] = 0;
@@ -116,11 +112,24 @@ const chatSlice = createSlice({
       state.messages[conversationId] = messages;
       if (!state.historyFetched) state.historyFetched = {};
       state.historyFetched[conversationId] = true;
+      if (!state.page) state.page = {};
+      state.page[conversationId] = 1;
+      if (!state.hasMoreHistory) state.hasMoreHistory = {};
+      state.hasMoreHistory[conversationId] = messages.length === 50; // Assume limit is 50
     },
-    setHistoryFetched: (state, action) => {
-      const { conversationId, fetched } = action.payload;
-      if (!state.historyFetched) state.historyFetched = {};
-      state.historyFetched[conversationId] = fetched;
+    prependMessages: (state, action) => {
+      const { conversationId, messages } = action.payload;
+      if (!state.messages[conversationId]) state.messages[conversationId] = [];
+      // prepend ensuring no duplicates
+      const existingIds = new Set(state.messages[conversationId].map(m => m._id));
+      const newMessages = messages.filter(m => !existingIds.has(m._id));
+      state.messages[conversationId] = [...newMessages, ...state.messages[conversationId]];
+      
+      if (!state.page) state.page = {};
+      state.page[conversationId] = (state.page[conversationId] || 1) + 1;
+      
+      if (!state.hasMoreHistory) state.hasMoreHistory = {};
+      state.hasMoreHistory[conversationId] = messages.length === 50; // Assume limit is 50
     },
     addMessage: (state, action) => {
       const { conversationId, message } = action.payload;
@@ -266,7 +275,6 @@ const chatSlice = createSlice({
       state.conversations = state.conversations.filter(c => c._id !== action.payload);
       if (state.activeConversation === action.payload) {
         state.activeConversation = null;
-        localStorage.removeItem('activeConversation');
       }
       delete state.messages[action.payload];
       delete state.readReceipts[action.payload];
@@ -275,7 +283,6 @@ const chatSlice = createSlice({
       state.conversations = state.conversations.filter(c => c._id !== action.payload);
       if (state.activeConversation === action.payload) {
         state.activeConversation = null;
-        localStorage.removeItem('activeConversation');
       }
       delete state.messages[action.payload];
       delete state.readReceipts[action.payload];
@@ -284,11 +291,8 @@ const chatSlice = createSlice({
 });
 
 export const { 
-  setConversations, updateConversation,
-  updatePartnerStatus,
-  removeConversation,
-  setActiveConversation, setActiveThread, 
-  setMessages, addMessage, updateMessage, removeMessage, removeMessagesBulk, markMessagesDeleted, setThreadMessages, setHistoryFetched,
+  setConversations, updateConversation, updatePartnerStatus, removeConversation, setActiveConversation, setActiveThread,
+  setMessages, prependMessages, addMessage, updateMessage, removeMessage, removeMessagesBulk, markMessagesDeleted, setThreadMessages,
   setTyping, 
   setPinnedMessages, addPinnedMessage, removePinnedMessage,
   setBookmarks, addBookmark, removeBookmark,

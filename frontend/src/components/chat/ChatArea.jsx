@@ -14,9 +14,9 @@ import { DeleteModal } from './DeleteModal';
 import { ForwardModal } from './ForwardModal';
 import { groupMessagesByDay } from '../../utils/messageUtils';
 import api from '../../services/api';
-import { setMessages, setActiveThread, addMessage, removeMessagesBulk, markMessagesDeleted, setHistoryFetched } from '../../store/slices/chatSlice';
+import { setMessages, prependMessages, setActiveThread, addMessage, removeMessagesBulk, markMessagesDeleted, updateMessage } from '../../store/slices/chatSlice';
 import { exportAESKey, encryptText } from '../../utils/cryptoService';
-import { X, Search, Trash2, Forward as ForwardIcon, Pin, Loader2 } from 'lucide-react';
+import { X, Search, Trash2, Forward as ForwardIcon, Pin } from 'lucide-react';
 import { useE2EE } from '../../context/E2EEContext';
 import { toast } from 'sonner';
 
@@ -31,8 +31,9 @@ const getMemberId = (member) => {
 export function ChatArea({ socket }) {
   const dispatch = useDispatch();
   const { user } = useSelector(state => state.auth);
-  const { conversations, activeConversation, messages, historyFetched = {}, activeThread, typing: stateTyping = {} } = useSelector(state => state.chat);
-  const { encryptDirectMessage, encryptGroupMessage, decryptDirectMessage, decryptGroupMessage, isReady: isE2EEReady, getGroupKey, getSharedSecret, cacheGroupKey } = useE2EE();
+  const { conversations, activeConversation, messages, historyFetched = {}, activeThread, typing: stateTyping = {}, hasMoreHistory = {}, page = {} } = useSelector(state => state.chat);
+  const { encryptDirectMessage, encryptGroupMessage, decryptDirectMessage, decryptGroupMessage, isReady: isE2EEReady } = useE2EE();
+  
   const parentRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -45,6 +46,7 @@ export function ChatArea({ socket }) {
   const [selectedMessages, setSelectedMessages] = useState([]);
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showForwardModal, setShowForwardModal] = useState(false);
@@ -89,7 +91,6 @@ export function ChatArea({ socket }) {
   };
 
   useEffect(() => {
-    if (!isE2EEReady || !conversation) return;
     if (activeConversation && !historyFetched[activeConversation]) {
       api.get(`/messages/conversation/${activeConversation}`)
         .then(async (res) => {
@@ -104,8 +105,25 @@ export function ChatArea({ socket }) {
                   // Decrypt everything for now. Optimistic UI is only for new messages.
                   if (conversation?.type === 'direct') {
                     msg.content = await decryptDirectMessage(msg.content, msg.iv, senderId === currentUserId ? partnerIdForDirect(conversation, currentUserId) : senderId);
+                    if (msg.parentMessage && msg.parentMessage.isEncrypted && msg.parentMessage.iv && msg.parentMessage.content) {
+                        try {
+                           const parentSenderId = typeof msg.parentMessage.sender === 'object' ? (msg.parentMessage.sender._id || msg.parentMessage.sender.id) : msg.parentMessage.sender;
+                           msg.parentMessage.content = await decryptDirectMessage(msg.parentMessage.content, msg.parentMessage.iv, parentSenderId === currentUserId ? partnerIdForDirect(conversation, currentUserId) : parentSenderId);
+                        } catch(err) {
+                           console.error('[E2EE] Initial Fetch Parent Decryption error:', err);
+                           msg.parentMessage.content = `🔒 Unable to decrypt parent message`;
+                        }
+                    }
                   } else if (conversation?.type === 'channel' || conversation?.type === 'group') {
                     msg.content = await decryptGroupMessage(msg.content, msg.iv, activeConversation, msg.keyVersion);
+                    if (msg.parentMessage && msg.parentMessage.isEncrypted && msg.parentMessage.iv && msg.parentMessage.content) {
+                        try {
+                           msg.parentMessage.content = await decryptGroupMessage(msg.parentMessage.content, msg.parentMessage.iv, activeConversation, msg.parentMessage.keyVersion);
+                        } catch(err) {
+                           console.error('[E2EE] Initial Fetch Parent Decryption error:', err);
+                           msg.parentMessage.content = `🔒 Unable to decrypt parent message`;
+                        }
+                    }
                   }
                 } catch (err) {
                   console.error('[E2EE] Initial Fetch Decryption error:', err);
@@ -118,19 +136,73 @@ export function ChatArea({ socket }) {
 
           dispatch(setMessages({ conversationId: activeConversation, messages: fetchedMessages }));
         })
-        .catch(err => {
-          console.error('[ChatArea] History fetch error:', err);
-          dispatch(setHistoryFetched({ conversationId: activeConversation, fetched: true }));
-        });
+        .catch(console.error);
     }
     // Reset selection & search when changing chats
     setSelectionMode(null);
     setSelectedMessages([]);
     setIsSearchActive(false);
     setSearchQuery('');
-  }, [activeConversation, dispatch, isE2EEReady, conversation]);
+  }, [activeConversation, dispatch, isE2EEReady]);
 
+  const handleScroll = async () => {
+    if (!parentRef.current || isFetchingMore || isSearchActive) return;
+    if (parentRef.current.scrollTop < 100) {
+      if (hasMoreHistory[activeConversation]) {
+        fetchMoreHistory();
+      }
+    }
+  };
 
+  const fetchMoreHistory = async () => {
+    if (!activeConversation || isFetchingMore) return;
+    setIsFetchingMore(true);
+    
+    // Remember scroll position from bottom
+    const scrollHeightBefore = parentRef.current.scrollHeight;
+    const scrollTopBefore = parentRef.current.scrollTop;
+
+    try {
+      const currentPage = page[activeConversation] || 1;
+      const res = await api.get(`/messages/conversation/${activeConversation}?page=${currentPage + 1}&limit=50`);
+      let fetchedMessages = res.data.data || [];
+      
+      if (isE2EEReady && fetchedMessages.length > 0) {
+        const currentUserId = user?._id || user?.id;
+        fetchedMessages = await Promise.all(fetchedMessages.map(async (msg) => {
+          if (msg.isEncrypted && msg.iv) {
+            try {
+              const senderId = typeof msg.sender === 'object' ? (msg.sender._id || msg.sender.id) : msg.sender;
+              if (conversation?.type === 'direct') {
+                msg.content = await decryptDirectMessage(msg.content, msg.iv, senderId === currentUserId ? partnerIdForDirect(conversation, currentUserId) : senderId);
+              } else if (conversation?.type === 'channel' || conversation?.type === 'group') {
+                msg.content = await decryptGroupMessage(msg.content, msg.iv, activeConversation, msg.keyVersion);
+              }
+            } catch (err) {
+              console.error('[E2EE] Pagination Fetch Decryption error:', err);
+              msg.content = `🔒 Unable to decrypt message`;
+            }
+          }
+          return msg;
+        }));
+      }
+
+      dispatch(prependMessages({ conversationId: activeConversation, messages: fetchedMessages }));
+      
+      // Restore scroll position
+      setTimeout(() => {
+        if (parentRef.current) {
+          const scrollHeightAfter = parentRef.current.scrollHeight;
+          parentRef.current.scrollTop = scrollTopBefore + (scrollHeightAfter - scrollHeightBefore);
+        }
+      }, 0);
+
+    } catch (err) {
+      console.error('Failed to fetch more history:', err);
+    } finally {
+      setIsFetchingMore(false);
+    }
+  };
 
   useEffect(() => {
     if (socket && activeConversation) {
@@ -148,11 +220,13 @@ export function ChatArea({ socket }) {
     overscan: 10,
   });
 
+  const lastMessageId = displayedMessages.length > 0 ? displayedMessages[displayedMessages.length - 1]._id : null;
+
   useEffect(() => {
-    if (rowVirtualizer.getTotalSize() > 0 && displayedMessages.length > 0 && !isSearchActive) {
+    if (rowVirtualizer.getTotalSize() > 0 && displayedMessages.length > 0 && !isSearchActive && !isFetchingMore) {
       rowVirtualizer.scrollToIndex(displayedMessages.length - 1, { align: 'end' });
     }
-  }, [displayedMessages.length, rowVirtualizer, isSearchActive, activeConversation]);
+  }, [lastMessageId, rowVirtualizer, isSearchActive]);
 
   useEffect(() => {
     if (!socket || !activeConversation || !currentMessages.length) return;
@@ -374,20 +448,21 @@ export function ChatArea({ socket }) {
 
         <div
           ref={parentRef}
+          onScroll={handleScroll}
           className="flex-1 overflow-y-auto p-4 md:px-8 custom-scrollbar overflow-x-hidden relative z-10"
         >
-          {!historyFetched[activeConversation] ? (
-            <div className="flex items-center justify-center h-full">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          {isFetchingMore && (
+            <div className="flex justify-center py-2">
+              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
             </div>
-          ) : (
-            <div
-              style={{
-                height: `${rowVirtualizer.getTotalSize()}px`,
-                width: '100%',
-                position: 'relative',
-              }}
-            >
+          )}
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
               const msg = displayedMessages[virtualRow.index];
               const prevMsg = virtualRow.index > 0 ? displayedMessages[virtualRow.index - 1] : null;
@@ -427,7 +502,42 @@ export function ChatArea({ socket }) {
                       onDeleteForEveryone={(id) => handleContextAction('delete_everyone', msg)}
                       onPin={(m) => handleContextAction('pin', m)}
                       onStar={(m) => handleContextAction('bookmark', m)}
-                      onReact={(id, emoji) => api.post(`/messages/${id}/reactions`, { emoji })}
+                      onReact={(id, emoji) => {
+                        // Optimistic update
+                        const msg = currentMessages.find(m => m._id === id);
+                        if (msg) {
+                          const currentUserId = user?._id || user?.id;
+                          let newReactions = [...(msg.reactions || [])];
+                          let existingReactionIndex = newReactions.findIndex(r => r.emoji === emoji);
+                          
+                          if (existingReactionIndex !== -1) {
+                            const reaction = { ...newReactions[existingReactionIndex] };
+                            const hasReacted = reaction.users.some(u => u === currentUserId || u._id === currentUserId);
+                            
+                            if (hasReacted) {
+                              reaction.users = reaction.users.filter(u => u !== currentUserId && u._id !== currentUserId);
+                              if (reaction.users.length === 0) {
+                                newReactions.splice(existingReactionIndex, 1);
+                              } else {
+                                newReactions[existingReactionIndex] = reaction;
+                              }
+                            } else {
+                              reaction.users = [...reaction.users, currentUserId];
+                              newReactions[existingReactionIndex] = reaction;
+                            }
+                          } else {
+                            newReactions.push({ emoji, users: [currentUserId] });
+                          }
+                          
+                          dispatch(updateMessage({
+                            conversationId: activeConversation,
+                            messageId: id,
+                            updates: { reactions: newReactions }
+                          }));
+                        }
+                        
+                        api.post(`/messages/${id}/reactions`, { emoji });
+                      }}
                       isSelectingMode={!!selectionMode}
                       isSelected={selectedMessages.includes(msg._id)}
                       onToggleSelect={handleToggleSelect}
@@ -437,8 +547,7 @@ export function ChatArea({ socket }) {
                 </div>
               );
             })}
-            </div>
-          )}
+          </div>
 
           {isTyping && !isSearchActive && (
             <div className="flex items-center gap-2 p-3 w-fit mt-2 rounded-2xl bg-white dark:bg-[#202c33] text-muted-foreground animate-in slide-in-from-bottom-2 shadow-sm">

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mic, MicOff, Video, VideoOff, Phone, MonitorUp, Settings, Users, MessageSquare, Hand, Maximize } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, Phone, MonitorUp, MonitorOff, Settings, Users, MessageSquare, Hand, Maximize } from 'lucide-react';
 
 export function CallToolbar({ 
   isMuted, 
@@ -10,6 +10,7 @@ export function CallToolbar({
   onToggleVideo, 
   onToggleScreenShare, 
   onToggleHandRaise,
+  isScreenShareOnlyCall,
   onOpenSettings,
   onToggleParticipants,
   onToggleChat,
@@ -29,20 +30,26 @@ export function CallToolbar({
           {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
         
-        <button 
-          onClick={onToggleVideo}
-          className={`p-3 rounded-full transition-all ${!isVideoEnabled ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30' : 'bg-white/10 text-white hover:bg-white/20'}`}
-          title={isVideoEnabled ? "Stop Video (V)" : "Start Video (V)"}
-        >
-          {isVideoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-        </button>
+        {!isScreenShareOnlyCall && (
+          <button 
+            onClick={onToggleVideo}
+            className={`p-3 rounded-full transition-all ${!isVideoEnabled ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30' : 'bg-white/10 text-white hover:bg-white/20'}`}
+            title={isVideoEnabled ? "Stop Video (V)" : "Start Video (V)"}
+          >
+            {isVideoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+          </button>
+        )}
 
         <button 
           onClick={onToggleScreenShare}
-          className={`p-3 rounded-full transition-all ${isScreenSharing ? 'bg-primary/20 text-primary hover:bg-primary/30' : 'bg-white/10 text-white hover:bg-white/20'}`}
+          className={`p-3 rounded-full transition-all ${
+            isScreenSharing 
+              ? 'bg-green-500/20 text-green-400 hover:bg-red-500/30 hover:text-red-400' 
+              : 'bg-white/10 text-white hover:bg-white/20'
+          }`}
           title={isScreenSharing ? "Stop Sharing" : "Share Screen"}
         >
-          <MonitorUp className="w-5 h-5" />
+          {isScreenSharing ? <MonitorOff className="w-5 h-5" /> : <MonitorUp className="w-5 h-5" />}
         </button>
       </div>
 
@@ -57,13 +64,15 @@ export function CallToolbar({
 
       {/* Feature Controls */}
       <div className="flex items-center gap-2 bg-white/5 rounded-full px-4 py-2 hidden sm:flex">
-        <button 
-          onClick={onToggleHandRaise}
-          className={`p-3 rounded-full transition-all ${isHandRaised ? 'bg-yellow-500/20 text-yellow-500' : 'bg-white/10 text-white hover:bg-white/20'}`}
-          title={isHandRaised ? "Lower Hand" : "Raise Hand"}
-        >
-          <Hand className="w-5 h-5" />
-        </button>
+        {!isScreenShareOnlyCall && (
+          <button 
+            onClick={onToggleHandRaise}
+            className={`p-3 rounded-full transition-all ${isHandRaised ? 'bg-yellow-500/20 text-yellow-500' : 'bg-white/10 text-white hover:bg-white/20'}`}
+            title={isHandRaised ? "Lower Hand" : "Raise Hand"}
+          >
+            <Hand className="w-5 h-5" />
+          </button>
+        )}
 
         <button 
           onClick={onToggleParticipants}

@@ -5,7 +5,7 @@ export function ReactionBar({ reactions = [], onReact, currentUserId }) {
   if (!reactions || reactions.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-1 mt-1">
+    <div className="flex flex-wrap gap-1 mt-1 mb-1.5 min-h-[24px]">
       <AnimatePresence>
         {reactions.map((reaction, i) => {
           const hasReacted = reaction.users.some(u => u === currentUserId || u._id === currentUserId);

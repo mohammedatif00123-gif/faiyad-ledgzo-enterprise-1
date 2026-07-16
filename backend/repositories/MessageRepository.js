@@ -7,7 +7,7 @@ class MessageRepository extends BaseRepository {
   }
 
   async getMessagesByConversation(conversationId, skip, limit) {
-    const messages = await this.model.find({ conversation: conversationId, isDeleted: false })
+    const messages = await this.model.find({ conversation: conversationId })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -25,7 +25,7 @@ class MessageRepository extends BaseRepository {
   }
 
   async getRepliesByThread(threadRootId, skip, limit) {
-    return await this.model.find({ threadRoot: threadRootId, isDeleted: false })
+    return await this.model.find({ threadRoot: threadRootId })
       .sort({ createdAt: 1 })
       .skip(skip)
       .limit(limit)

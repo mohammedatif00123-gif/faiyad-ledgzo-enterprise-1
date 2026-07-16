@@ -138,7 +138,7 @@ exports.addReaction = async (req, res) => {
     const userId = req.user.id;
     const message = await MessageService.addReaction(messageId, emoji, userId);
     
-    getIO().to(`room_${message.conversation}`).emit('reaction_updated', { messageId, reactions: message.reactions });
+    getIO().to(`room_${message.conversation}`).emit('reaction_updated', { conversationId: message.conversation, messageId, reactions: message.reactions });
     sendResponse(res, 200, 'Reaction added', message.reactions);
   } catch (error) {
     sendResponse(res, 500, error.message, null, error);
@@ -152,7 +152,7 @@ exports.removeReaction = async (req, res) => {
     const userId = req.user.id;
     const message = await MessageService.removeReaction(messageId, emoji, userId);
     
-    getIO().to(`room_${message.conversation}`).emit('reaction_updated', { messageId, reactions: message.reactions });
+    getIO().to(`room_${message.conversation}`).emit('reaction_updated', { conversationId: message.conversation, messageId, reactions: message.reactions });
     sendResponse(res, 200, 'Reaction removed', message.reactions);
   } catch (error) {
     sendResponse(res, 500, error.message, null, error);

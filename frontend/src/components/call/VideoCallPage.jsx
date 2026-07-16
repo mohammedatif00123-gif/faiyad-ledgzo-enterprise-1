@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Signal, Minimize } from 'lucide-react';
 import { useWebRTC } from '../../hooks/useWebRTC';
@@ -67,6 +67,9 @@ export function VideoCallPage({ socket }) {
       setIsVideoEnabled(activeCall?.initialSettings?.isVideoEnabled ?? (activeCall.callType === 'video'));
     }
   }, [activeCall?.status, isReady, activeCall?.callType, activeCall?.initialSettings]);
+
+
+
 
 
   // Clean up screen share stream if call ends externally
@@ -198,7 +201,7 @@ export function VideoCallPage({ socket }) {
     toggleVideo(newVideoEnabled);
   };
 
-  const handleToggleScreenShare = async () => {
+  const handleToggleScreenShare = useCallback(async () => {
     if (isScreenSharing) {
       stopScreenShare();
       setIsScreenSharing(false);
@@ -215,11 +218,12 @@ export function VideoCallPage({ socket }) {
           setIsScreenSharing(false);
           setActiveScreenShareId(null);
           setScreenShareStream(null);
-          // stopScreenShare is called internally by useWebRTC
         };
       }
     }
-  };
+  }, [isScreenSharing, stopScreenShare, startScreenShare, user]);
+
+
 
   const handleToggleHandRaise = () => {
     const newHandRaised = !isHandRaised;
@@ -267,10 +271,94 @@ export function VideoCallPage({ socket }) {
   if (!activeCall || activeCall.status === 'Ringing' || activeCall.status === 'Ended' || activeCall.status === 'Rejected' || activeCall.callType === 'voice') {
     return null;
   }
+
   // Render logic: Grid vs Screen Share
   const allParticipants = [(user?._id || user?.id), ...targetUserIds];
-  const isScreenShareActive = !!activeScreenShareId;
+  const isScreenShareOnlyCall = activeCall?.callType === 'screen_share';
+  // For screen_share calls: always active (waiting or sharing). For others: only if someone is sharing.
+  const isScreenShareActive = !!activeScreenShareId || isScreenShareOnlyCall;
+  // Preparing = screen_share call but nobody has started sharing yet
+  const isPreparingScreenShare = isScreenShareOnlyCall && !isScreenSharing && !activeScreenShareId;
   const allParticipantDetails = { ...participantsDetails, [(user?._id || user?.id)]: user };
+
+  // For screen_share calls: ALWAYS render ScreenShareView, never the participant grid
+  if (isScreenShareOnlyCall) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-gray-950 text-white overflow-hidden animate-in fade-in duration-300">
+        {/* Top Header */}
+        <div className="flex justify-between items-center px-5 py-3 bg-black/60 backdrop-blur-md border-b border-white/10 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${networkQuality === 'Excellent' ? 'text-green-400' : networkQuality === 'Good' ? 'text-yellow-400' : 'text-red-400'} bg-white/5 border border-white/10`}>
+              <Signal className="w-4 h-4" />
+              <span className="text-xs font-medium">{networkQuality}</span>
+            </div>
+            {activeCall.status === 'Connected' && (
+              <div className="px-3 py-1 bg-black/40 rounded-full font-mono text-sm border border-white/10">
+                {formatDuration(duration)}
+              </div>
+            )}
+          </div>
+
+          <div className="text-sm font-semibold text-white/80 tracking-wide">
+            {isScreenSharing ? (
+              <span className="flex items-center gap-2 text-primary">
+                <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                You are sharing your screen
+              </span>
+            ) : isPreparingScreenShare ? (
+              <span className="text-white/60">Preparing screen share...</span>
+            ) : (
+              <span>Screen Share</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {activeCall.status !== 'Connected' && (
+              <span className="text-white/50 text-sm">{activeCall.status}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Main: ScreenShareView takes everything */}
+        <div className="flex-1 w-full flex overflow-hidden min-h-0">
+          <ScreenShareView
+            screenStream={activeScreenShareId === (user?._id || user?.id) ? screenShareStream : remoteMediaStreams[activeScreenShareId]}
+            presenterId={activeScreenShareId}
+            participants={allParticipants}
+            remoteStreams={remoteMediaStreams}
+            localStream={localMediaStream}
+            localUserId={(user?._id || user?.id)}
+            participantDetails={allParticipantDetails}
+            participantStates={participantStates}
+            isPreparing={isPreparingScreenShare}
+          />
+        </div>
+
+        {/* Minimal toolbar for screen share */}
+        <CallToolbar
+          isMuted={isMuted}
+          isVideoEnabled={isVideoEnabled}
+          isScreenSharing={isScreenSharing}
+          isHandRaised={isHandRaised}
+          isScreenShareOnlyCall={true}
+          onToggleMute={handleToggleMute}
+          onToggleVideo={handleToggleVideo}
+          onToggleScreenShare={handleToggleScreenShare}
+          onToggleHandRaise={handleToggleHandRaise}
+          onOpenSettings={() => setShowSettings(true)}
+          onToggleParticipants={() => {
+            setShowParticipants(!showParticipants);
+            if (!showParticipants && showChat) setShowChat(false);
+          }}
+          onToggleChat={handleToggleChat}
+          onToggleFullscreen={toggleFullscreen}
+          onEndCall={handleEndCall}
+        />
+
+        {showSettings && <VideoSettingsModal onClose={() => setShowSettings(false)} />}
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-gray-950 text-white overflow-hidden animate-in fade-in duration-300">
@@ -319,6 +407,7 @@ export function VideoCallPage({ socket }) {
             localUserId={(user?._id || user?.id)}
             participantDetails={allParticipantDetails}
             participantStates={participantStates}
+            isPreparing={isPreparingScreenShare}
           />
         ) : (
           <ParticipantGrid 
@@ -355,6 +444,7 @@ export function VideoCallPage({ socket }) {
         isVideoEnabled={isVideoEnabled}
         isScreenSharing={isScreenSharing}
         isHandRaised={isHandRaised}
+        isScreenShareOnlyCall={isScreenShareOnlyCall}
         onToggleMute={handleToggleMute}
         onToggleVideo={handleToggleVideo}
         onToggleScreenShare={handleToggleScreenShare}

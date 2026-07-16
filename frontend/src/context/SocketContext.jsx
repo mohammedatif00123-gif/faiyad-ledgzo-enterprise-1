@@ -81,8 +81,25 @@ export function SocketProvider({ children }) {
             const partnerId = conv.partnerId || conv.participants?.map(p => p._id || p).find(id => id !== currentUserId) || senderId;
             const targetId = senderId === currentUserId ? partnerId : senderId;
             decryptedContent = await currentE2EE.decryptDirectMessage(message.content, message.iv, targetId);
+            if (message.parentMessage && message.parentMessage.isEncrypted && message.parentMessage.iv && message.parentMessage.content) {
+                try {
+                   const parentSenderId = typeof message.parentMessage.sender === 'object' ? (message.parentMessage.sender._id || message.parentMessage.sender.id) : message.parentMessage.sender;
+                   message.parentMessage.content = await currentE2EE.decryptDirectMessage(message.parentMessage.content, message.parentMessage.iv, parentSenderId === currentUserId ? partnerId : parentSenderId);
+                } catch(err) {
+                   console.error('[E2EE] Failed to decrypt parent message:', err);
+                   message.parentMessage.content = `🔒 Unable to decrypt parent message`;
+                }
+            }
           } else if (conv?.type === 'channel' || conv?.type === 'group') {
             decryptedContent = await currentE2EE.decryptGroupMessage(message.content, message.iv, message.conversation, message.keyVersion);
+            if (message.parentMessage && message.parentMessage.isEncrypted && message.parentMessage.iv && message.parentMessage.content) {
+                try {
+                   message.parentMessage.content = await currentE2EE.decryptGroupMessage(message.parentMessage.content, message.parentMessage.iv, message.conversation, message.parentMessage.keyVersion);
+                } catch(err) {
+                   console.error('[E2EE] Failed to decrypt parent message:', err);
+                   message.parentMessage.content = `🔒 Unable to decrypt parent message`;
+                }
+            }
           }
           message.content = decryptedContent;
         } catch (err) {
@@ -125,6 +142,14 @@ export function SocketProvider({ children }) {
 
     newSocket.on('userTyping', ({ conversationId, userId, isTyping }) => {
       dispatch(setTyping({ conversationId, userId, isTyping }));
+    });
+
+    newSocket.on('reaction_updated', ({ conversationId, messageId, reactions }) => {
+      dispatch(updateMessage({
+        conversationId,
+        messageId,
+        updates: { reactions }
+      }));
     });
 
     newSocket.on('message_status_update', ({ conversationId, messageId, status }) => {
