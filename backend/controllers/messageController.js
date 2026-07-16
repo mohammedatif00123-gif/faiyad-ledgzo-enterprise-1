@@ -4,7 +4,6 @@ const BookmarkService = require('../services/BookmarkService');
 const PinService = require('../services/PinService');
 const DraftService = require('../services/DraftService');
 const { sendResponse } = require('../utils/apiResponse');
-const { getIO } = require('../sockets');
 
 exports.getMessages = async (req, res) => {
   try {
@@ -37,6 +36,7 @@ exports.editMessage = async (req, res) => {
     const userId = req.user.id;
     const message = await MessageService.editMessage(messageId, userId, content, reason, iv, keyVersion);
     
+    const { getIO } = require('../sockets');
     getIO().to(`room_${message.conversation}`).emit('message_updated', message);
     sendResponse(res, 200, 'Message updated', message);
   } catch (error) {
@@ -50,6 +50,7 @@ exports.deleteForEveryone = async (req, res) => {
     const userId = req.user.id;
     const message = await MessageService.deleteForEveryone(messageId, userId, req.user.role);
     
+    const { getIO } = require('../sockets');
     getIO().to(`room_${message.conversation}`).emit('message_deleted', { messageId, conversationId: message.conversation, type: 'everyone' });
     sendResponse(res, 200, 'Message deleted for everyone', message);
   } catch (error) {
@@ -87,6 +88,7 @@ exports.bulkDeleteForEveryone = async (req, res) => {
     if (validDeleted.length > 0) {
       const convId = validDeleted[0].conversation;
       if (convId) {
+        const { getIO } = require('../sockets');
         getIO().to(`room_${convId.toString()}`).emit('messages_deleted_bulk', { messageIds, conversationId: convId.toString(), type: 'everyone' });
       }
     }
@@ -138,6 +140,7 @@ exports.addReaction = async (req, res) => {
     const userId = req.user.id;
     const message = await MessageService.addReaction(messageId, emoji, userId);
     
+    const { getIO } = require('../sockets');
     getIO().to(`room_${message.conversation}`).emit('reaction_updated', { conversationId: message.conversation, messageId, reactions: message.reactions });
     sendResponse(res, 200, 'Reaction added', message.reactions);
   } catch (error) {
@@ -152,6 +155,7 @@ exports.removeReaction = async (req, res) => {
     const userId = req.user.id;
     const message = await MessageService.removeReaction(messageId, emoji, userId);
     
+    const { getIO } = require('../sockets');
     getIO().to(`room_${message.conversation}`).emit('reaction_updated', { conversationId: message.conversation, messageId, reactions: message.reactions });
     sendResponse(res, 200, 'Reaction removed', message.reactions);
   } catch (error) {
@@ -220,6 +224,8 @@ exports.pinMessage = async (req, res) => {
     const { conversationId, messageId } = req.params;
     const userId = req.user.id;
     const pin = await PinService.pinMessage(conversationId, messageId, userId);
+    
+    const { getIO } = require('../sockets');
     getIO().to(`room_${conversationId}`).emit('pin_added', pin);
     sendResponse(res, 201, 'Message pinned', pin);
   } catch (error) {
@@ -231,6 +237,8 @@ exports.unpinMessage = async (req, res) => {
   try {
     const { conversationId, messageId } = req.params;
     await PinService.unpinMessage(conversationId, messageId);
+    
+    const { getIO } = require('../sockets');
     getIO().to(`room_${conversationId}`).emit('pin_removed', { messageId });
     sendResponse(res, 200, 'Message unpinned', null);
   } catch (error) {

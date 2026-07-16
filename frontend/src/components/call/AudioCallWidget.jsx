@@ -3,7 +3,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { motion } from 'framer-motion';
 import { PhoneOff, Mic, MicOff, MoreHorizontal, Settings, Users, Signal, Volume2, Phone, UserPlus, MonitorUp } from 'lucide-react';
 import { useWebRTC } from '../../hooks/useWebRTC';
-import { endCall, setActiveCall, updateParticipantState, addCallParticipant } from '../../store/slices/callSlice';
+import { endCall, setActiveCall, updateParticipantState, addCallParticipant, removeCallParticipant } from '../../store/slices/callSlice';
 import api from '../../services/api';
 import { getAvatarUrl } from '../../utils/avatar';
 
@@ -36,7 +36,7 @@ export function AudioCallWidget({ socket }) {
 
   const { 
     initWebRTC, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined,
-    cleanup, forceCleanup, isReady, remoteMediaStreams, localMediaStream,
+    cleanup, forceCleanup, removePeerConnection, isReady, remoteMediaStreams, localMediaStream,
     toggleMute, startScreenShare, stopScreenShare
   } = useWebRTC(socket, activeCall?.callId, (user?._id || user?.id));
 
@@ -90,16 +90,30 @@ export function AudioCallWidget({ socket }) {
       }
     };
 
+    const onParticipantLeft = (data) => {
+      if (data.callId === activeCall?.callId) {
+        console.log(`[AudioCallWidget] Participant left: ${data.userId}`);
+        removePeerConnection(data.userId);
+        dispatch(removeCallParticipant(data.userId));
+        
+        if (activeScreenShareId === data.userId) {
+          setActiveScreenShareId(null);
+        }
+      }
+    };
+
     socket.on('webrtc_offer', onOffer);
     socket.on('webrtc_answer', onAnswer);
     socket.on('webrtc_ice_candidate', onCandidate);
     socket.on('peer_joined_call', onPeerJoined);
+    socket.on('participant_left', onParticipantLeft);
 
     return () => {
       socket.off('webrtc_offer', onOffer);
       socket.off('webrtc_answer', onAnswer);
       socket.off('webrtc_ice_candidate', onCandidate);
       socket.off('peer_joined_call', onPeerJoined);
+      socket.off('participant_left', onParticipantLeft);
     };
   }, [socket, activeCall, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined, dispatch]);
 

@@ -38,6 +38,17 @@ const callSlice = createSlice({
         }
       }
     },
+    removeCallParticipant: (state, action) => {
+      if (state.activeCall && state.activeCall.participants) {
+        const removeId = typeof action.payload === 'string' ? action.payload : (action.payload._id || action.payload);
+        state.activeCall.participants = state.activeCall.participants.filter(
+          p => {
+            const pId = typeof p === 'string' ? p : (p?._id || p);
+            return pId !== removeId;
+          }
+        );
+      }
+    },
     updateCallStatus: (state, action) => {
       if (state.activeCall) {
         // action.payload can be a string (status) or an object { status, callId }
@@ -96,7 +107,8 @@ export const {
   setDevicePreferences,
   updateParticipantState,
   setCallHistory,
-  addCallParticipant
+  addCallParticipant,
+  removeCallParticipant
 } = callSlice.actions;
 
 export default callSlice.reducer;

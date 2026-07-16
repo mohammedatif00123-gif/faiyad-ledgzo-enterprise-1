@@ -11,11 +11,13 @@ import {
 } from '../store/slices/chatSlice';
 import {
   setIncomingCall,
+  setActiveCall,
   updateCallStatus,
   endCall,
   clearIncomingCall,
   updateParticipantState
 } from '../store/slices/callSlice';
+import api from '../services/api';
 import { audioUtils } from '../utils/audioUtils';
 import { useE2EE } from './E2EEContext';
 
@@ -28,18 +30,24 @@ export function useSocket() {
 export function SocketProvider({ children }) {
   const dispatch = useDispatch();
   const { accessToken, user } = useSelector(state => state.auth);
+  const { activeCall } = useSelector(state => state.call);
   const { activeConversation, conversations } = useSelector(state => state.chat);
   const { decryptDirectMessage, decryptGroupMessage, isReady: isE2EEReady } = useE2EE();
   const [socket, setSocket] = useState(null);
 
   const activeConversationRef = React.useRef(activeConversation);
   const conversationsRef = React.useRef(conversations);
+  const activeCallRef = React.useRef(activeCall);
   const e2eeRef = React.useRef({ decryptDirectMessage, decryptGroupMessage, isE2EEReady });
 
   useEffect(() => {
     activeConversationRef.current = activeConversation;
     conversationsRef.current = conversations;
   }, [activeConversation, conversations]);
+
+  useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
 
   useEffect(() => {
     e2eeRef.current = { decryptDirectMessage, decryptGroupMessage, isE2EEReady };
@@ -63,6 +71,42 @@ export function SocketProvider({ children }) {
 
     newSocket.on('connect', () => {
       console.log('Global socket connected:', newSocket.id);
+      
+      // Fetch active call on load or reconnect to survive page refreshes
+      api.get('/calls/active')
+        .then(res => {
+          if (res.data?.data?.activeCall) {
+            const { activeCall: serverCall, type } = res.data.data;
+            
+            // Prevent duplicate restoration if UI is already showing this call
+            if (activeCallRef.current?.callId === serverCall._id) {
+               console.log('Call already active in UI. Skipping duplicate restoration.');
+               return;
+            }
+
+            // Reconstruct the active call object for Redux
+            const restoredCall = {
+              callId: serverCall._id,
+              conversationId: serverCall.conversation,
+              status: serverCall.status,
+              callType: serverCall.callType,
+              participants: serverCall.participants,
+              initialSettings: serverCall.initialSettings,
+              initiatedBy: serverCall.initiatedBy,
+              isInitiator: serverCall.initiatedBy._id === (user?._id || user?.id)
+            };
+
+            if (type === 'incoming') {
+              console.log('Restoring incoming call...');
+              dispatch(setIncomingCall({ ...restoredCall, from: serverCall.initiatedBy._id, callerDetails: serverCall.initiatedBy }));
+              audioUtils.playRingtone();
+            } else {
+              console.log('Restoring active/outgoing call...');
+              dispatch(setActiveCall(restoredCall));
+            }
+          }
+        })
+        .catch(err => console.error('Failed to fetch active call on reconnect:', err));
     });
 
     newSocket.on('newMessage', async (message) => {

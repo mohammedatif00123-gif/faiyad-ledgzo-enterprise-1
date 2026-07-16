@@ -3,6 +3,7 @@ const CallParticipant = require('../models/CallParticipant');
 const MessageRepository = require('../repositories/MessageRepository');
 const PresenceService = require('./PresenceService');
 const { AppError } = require('../utils/errors');
+const { getIO } = require('../sockets');
 
 class CallService {
   async _isUserBusy(userId) {
@@ -75,7 +76,6 @@ class CallService {
     await callerParticipant.save();
 
     // 5. Update Caller Presence
-    const { getIO } = require('../sockets');
     await PresenceService.setStatus(callerId, 'In Call', getIO());
 
     // 6. Emit call_ringing to all participants
@@ -104,6 +104,26 @@ class CallService {
 
     // 7. Generate System Message
     await this._createSystemMessage(conversationId, callerId, 'call_log', `📞 ${callType === 'video' ? 'Video' : 'Voice'} call started`);
+
+    // 8. Enforce Ringing Timeout Server-Side
+    const timeoutSeconds = parseInt(process.env.CALL_RING_TIMEOUT) || 60;
+    setTimeout(async () => {
+      try {
+        const session = await CallSession.findById(callSession._id);
+        if (session && session.status === 'Ringing') {
+          session.status = 'Missed';
+          session.endedAt = new Date();
+          await session.save();
+          
+          if (io) {
+            io.to(`room_${conversationId}`).emit('call_timeout', { callId: session._id });
+          }
+          console.log(`[CallService] Call ${session._id} timed out after ${timeoutSeconds}s`);
+        }
+      } catch (err) {
+        console.error('Error enforcing call timeout:', err);
+      }
+    }, timeoutSeconds * 1000);
 
     return callSession;
   }
@@ -153,7 +173,6 @@ class CallService {
     await callSession.save();
 
     // Update Presence
-    const { getIO } = require('../sockets');
     await PresenceService.setStatus(userId, 'In Call', getIO());
 
     // Broadcast peer_joined_call to ALL OTHER participants in the session
@@ -196,7 +215,6 @@ class CallService {
 
     // Emit call_invite to the new user
     const inviter = await require('../models/User').findById(inviterId);
-    const { getIO } = require('../sockets');
     const io = getIO();
     if (io) {
       io.to(`user_${newUserId.toString()}`).emit('call_ringing', {
@@ -237,7 +255,6 @@ class CallService {
     await this._createSystemMessage(callSession.conversation, userId, `${u.firstName} declined the call`);
 
     // Reset Caller Presence
-    const { getIO } = require('../sockets');
     await PresenceService.setStatus(callSession.initiatedBy, 'Online', getIO());
 
     return callSession;
@@ -364,8 +381,73 @@ class CallService {
       if (remaining < 2) {
         // End the call since less than 2 people are left
         await this.endCall(callIdObj, userId);
+      } else {
+        // Notify others that someone dropped completely
+        const io = getIO();
+        if (io && callSessionDoc) {
+          for (const pId of callSessionDoc.participants) {
+            if (pId.toString() !== userId.toString()) {
+              io.to(`user_${pId.toString()}`).emit('participant_left', { 
+                callId: callIdObj, 
+                userId 
+              });
+            }
+          }
+        }
       }
     }
+  }
+
+  async getActiveCallForUser(userId) {
+    // 1. Check if the user is already actively participating in a call (Connected or Outgoing Ringing)
+    const activeParticipant = await CallParticipant.findOne({
+      user: userId,
+      leftAt: null
+    }).sort({ joinedAt: -1 });
+
+    let callSessionId = null;
+
+    if (activeParticipant) {
+      callSessionId = activeParticipant.callSession;
+    } else {
+      // 2. If no active participant record, check if they are INVITED to an incoming Ringing call
+      const incomingCall = await CallSession.findOne({
+        participants: userId,
+        status: 'Ringing'
+      }).sort({ startedAt: -1 });
+
+      if (incomingCall) {
+        // Ensure this isn't a stale call using configurable timeout
+        const timeoutSeconds = parseInt(process.env.CALL_RING_TIMEOUT) || 60;
+        const secondsSinceStart = (new Date() - new Date(incomingCall.startedAt)) / 1000;
+        
+        if (secondsSinceStart < timeoutSeconds) {
+          callSessionId = incomingCall._id;
+        } else {
+           // Clean up stale ringing call
+           incomingCall.status = 'Missed';
+           incomingCall.endedAt = new Date();
+           await incomingCall.save();
+        }
+      }
+    }
+
+    if (!callSessionId) return null;
+
+    // Fetch the actual CallSession
+    const callSession = await CallSession.findById(callSessionId)
+      .populate('initiatedBy', 'firstName lastName avatar email')
+      .populate('participants', 'firstName lastName avatar email');
+
+    if (!callSession) return null;
+
+    // Check if the call is in a valid active state
+    const activeStates = ['Ringing', 'Connecting', 'Connected'];
+    if (activeStates.includes(callSession.status)) {
+      return callSession;
+    }
+
+    return null;
   }
 
   async getCallHistory(userId, filters = {}) {

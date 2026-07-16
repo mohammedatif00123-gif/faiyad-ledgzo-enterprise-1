@@ -299,24 +299,30 @@ const initSocket = (server) => {
     socket.on('disconnect', async () => {
       console.log(`User Disconnected: ${socket.user.id}`);
       
-      // Check if user still has other active sockets connected
-      const activeSockets = await io.in(`user_${socket.user.id}`).fetchSockets();
-      if (activeSockets.length > 0) {
-        console.log(`User ${socket.user.id} still has ${activeSockets.length} active socket(s). Keeping online.`);
-        return; // Don't mark offline
-      }
+      // Buffer the disconnect to handle page refreshes (gives client 5 seconds to reconnect)
+      setTimeout(async () => {
+        try {
+          const activeSockets = await io.in(`user_${socket.user.id}`).fetchSockets();
+          if (activeSockets.length > 0) {
+            console.log(`User ${socket.user.id} reconnected quickly. Keeping online and active in calls.`);
+            return; 
+          }
 
-      await UserRepository.updateOnlineStatus(socket.user.id, null, false);
-      
-      const PresenceService = require('../services/PresenceService');
-      const CallService = require('../services/CallService');
-      const User = require('../models/User');
-      
-      await PresenceService.setStatus(socket.user.id, 'Offline', io);
-      await CallService.handleUserDisconnect(socket.user.id);
-      
-      await User.findByIdAndUpdate(socket.user.id, { presenceStatus: 'offline' });
-      io.emit('user_status_changed', { userId: socket.user.id, presenceStatus: 'offline' });
+          await UserRepository.updateOnlineStatus(socket.user.id, null, false);
+          
+          const PresenceService = require('../services/PresenceService');
+          const CallService = require('../services/CallService');
+          const User = require('../models/User');
+          
+          await PresenceService.setStatus(socket.user.id, 'Offline', io);
+          await CallService.handleUserDisconnect(socket.user.id);
+          
+          await User.findByIdAndUpdate(socket.user.id, { presenceStatus: 'offline' });
+          io.emit('user_status_changed', { userId: socket.user.id, presenceStatus: 'offline' });
+        } catch (err) {
+          console.error('Error in delayed disconnect handler:', err);
+        }
+      }, 5000);
     });
   });
 

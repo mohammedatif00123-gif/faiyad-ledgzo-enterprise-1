@@ -20,8 +20,10 @@ const attachmentSchema = new mongoose.Schema({
     enum: ['image', 'document', 'voice_note', 'video', 'code', 'generic'],
     required: true,
   },
-  fileName: String,
-  fileSize: Number, // in bytes
+  fileName: String,           // original filename as uploaded by user (e.g. "Vacation Goa.jpg")
+  originalName: String,       // alias/backup of fileName for explicit clarity
+  mimeType: String,           // original MIME type (e.g. "image/jpeg")
+  fileSize: Number,           // in bytes
   metadata: {
     type: mongoose.Schema.Types.Mixed, // E.g., duration for voice_notes
   }

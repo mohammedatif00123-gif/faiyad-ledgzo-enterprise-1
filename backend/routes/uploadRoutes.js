@@ -63,7 +63,9 @@ router.post('/', upload.array('files', 10), async (req, res) => {
         uploader: req.user._id,
         fileUrl,
         fileType,
-        fileName: file.originalname,
+        fileName: file.originalname,        // original name (e.g. "Vacation Goa.jpg")
+        originalName: file.originalname,    // explicit alias for clarity
+        mimeType: file.mimetype,            // original MIME type
         fileSize: file.size,
         metadata: metadataArray[i] || null
       });

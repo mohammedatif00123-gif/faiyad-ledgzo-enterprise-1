@@ -407,8 +407,14 @@ import { decryptFile, encryptFile, importAESKey, decryptText, encryptText } from
 
 const ICE_SERVERS = {
   iceServers: [
+    // Reliable Global STUN Servers
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.twilio.com:3478' },
+    
+    // Free Public TURN Servers
     {
       urls: 'turn:openrelay.metered.ca:80',
       username: 'openrelayproject',
@@ -416,6 +422,12 @@ const ICE_SERVERS = {
     },
     {
       urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    // SECURE TURN (TURNS) over TCP - CRITICAL for Middle East (Bahrain/Dubai) to bypass VoIP firewalls
+    {
+      urls: 'turns:openrelay.metered.ca:443?transport=tcp',
       username: 'openrelayproject',
       credential: 'openrelayproject'
     }
@@ -1183,6 +1195,37 @@ export function useWebRTC(socket, callId, myUserId) {
     });
   }, [socket, scheduleNegotiation]);
 
+  // ✅ Remove specific peer connection
+  const removePeerConnection = useCallback((peerId) => {
+    try {
+      console.log(`[useWebRTC] Removing peer connection for: ${peerId}`);
+      const pc = peerConnections.current.get(peerId);
+      if (pc) {
+        pc.ontrack = null;
+        pc.onicecandidate = null;
+        pc.onconnectionstatechange = null;
+        pc.oniceconnectionstatechange = null;
+        pc.onsignalingstatechange = null;
+        pc.onnegotiationneeded = null;
+        pc.ondatachannel = null;
+
+        pc.close();
+        peerConnections.current.delete(peerId);
+        console.log(`[useWebRTC] Successfully closed and removed peer: ${peerId}`);
+      }
+
+      setRemoteMediaStreams(prev => {
+        const newStreams = { ...prev };
+        delete newStreams[peerId];
+        return newStreams;
+      });
+      
+      negotiationInProgressRef.current.delete(peerId);
+    } catch (error) {
+      console.error(`[useWebRTC] Error removing peer ${peerId}:`, error);
+    }
+  }, []);
+
   const forceCleanup = useCallback(async () => {
     console.log('[useWebRTC] FORCED CLEANUP INITIATED');
     await cleanupCall();
@@ -1241,6 +1284,7 @@ export function useWebRTC(socket, callId, myUserId) {
     cleanup: cleanupCall,
     cleanupCall,
     forceCleanup,
+    removePeerConnection,
     waitForCleanup,
     isCleanupComplete,
     isReady,

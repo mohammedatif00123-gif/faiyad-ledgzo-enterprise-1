@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Signal, Minimize } from 'lucide-react';
 import { useWebRTC } from '../../hooks/useWebRTC';
-import { endCall, setActiveCall, updateParticipantState, addCallParticipant } from '../../store/slices/callSlice';
+import { endCall, setActiveCall, updateParticipantState, addCallParticipant, removeCallParticipant } from '../../store/slices/callSlice';
 import api from '../../services/api';
 
 import { CallToolbar } from './CallToolbar';
@@ -41,7 +41,7 @@ export function VideoCallPage({ socket }) {
 
   const { 
     initWebRTC, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined,
-    toggleMute, toggleVideo, startScreenShare, stopScreenShare, cleanup, forceCleanup, isReady, 
+    toggleMute, toggleVideo, startScreenShare, stopScreenShare, cleanup, forceCleanup, removePeerConnection, isReady, 
     localMediaStream, remoteMediaStreams 
   } = useWebRTC(socket, activeCall?.callId, (user?._id || user?.id));
 
@@ -127,6 +127,19 @@ export function VideoCallPage({ socket }) {
       dispatch(updateParticipantState({ userId: data.from, handRaised: data.isRaised }));
     };
 
+    const onParticipantLeft = (data) => {
+      if (data.callId === activeCall?.callId) {
+        console.log(`[VideoCallPage] Participant left: ${data.userId}`);
+        removePeerConnection(data.userId);
+        dispatch(removeCallParticipant(data.userId));
+        
+        // If this user was screen sharing, stop it
+        if (activeScreenShareId === data.userId) {
+          setActiveScreenShareId(null);
+        }
+      }
+    };
+
     socket.on('webrtc_offer', onOffer);
     socket.on('webrtc_answer', onAnswer);
     socket.on('webrtc_ice_candidate', onCandidate);
@@ -135,6 +148,7 @@ export function VideoCallPage({ socket }) {
     socket.on('screen_share_start', onScreenShareStart);
     socket.on('screen_share_stop', onScreenShareStop);
     socket.on('raise_hand', onRaiseHand);
+    socket.on('participant_left', onParticipantLeft);
 
     return () => {
       socket.off('webrtc_offer', onOffer);
@@ -145,6 +159,7 @@ export function VideoCallPage({ socket }) {
       socket.off('screen_share_start', onScreenShareStart);
       socket.off('screen_share_stop', onScreenShareStop);
       socket.off('raise_hand', onRaiseHand);
+      socket.off('participant_left', onParticipantLeft);
     };
   }, [socket, activeCall, handleOffer, handleAnswer, handleIceCandidate, handlePeerJoined, dispatch, activeScreenShareId]);
 

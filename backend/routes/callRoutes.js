@@ -52,6 +52,28 @@ router.post('/:id/end', async (req, res, next) => {
   }
 });
 
+// Get Active Call for User
+router.get('/active', async (req, res, next) => {
+  try {
+    const activeCall = await CallService.getActiveCallForUser(req.user._id);
+    if (!activeCall) {
+      return sendResponse(res, 200, 'No active call', { activeCall: null });
+    }
+    
+    // Check if the current user has already "answered" to help frontend know if it's incoming or active
+    // If call status is Ringing, but they are the initiator, it's outgoing.
+    // If they aren't the initiator, it's incoming.
+    let type = 'active';
+    if (activeCall.status === 'Ringing') {
+      type = activeCall.initiatedBy._id.toString() === req.user._id.toString() ? 'outgoing' : 'incoming';
+    }
+
+    sendResponse(res, 200, 'Active call fetched', { activeCall, type });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get History
 router.get('/history', async (req, res, next) => {
   try {

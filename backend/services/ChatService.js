@@ -38,57 +38,11 @@ class ChatService {
           conv.name = `${otherMember.user.firstName} ${otherMember.user.lastName}`;
           conv.avatar = otherMember.user.avatar;
           conv.partnerId = otherMember.user._id;
-          conv.partnerAwayReason = otherMember.user.awayReason;
-          
-          // Temporary placeholder, will be filled in the next pass
           conv.partnerStatus = otherMember.user.presenceStatus;
+          conv.partnerAwayReason = otherMember.user.awayReason;
         }
       }
       return conv;
-    });
-
-    // Populate partnerStatus accurately considering Attendance and Leaves
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(today);
-    endOfDay.setHours(23, 59, 59, 999);
-    
-    const Attendance = require('../models/Attendance');
-    const Leave = require('../models/Leave');
-
-    const partnerIds = [];
-    result.forEach(conv => {
-      if (conv.type === 'direct' && conv.partnerId) {
-        partnerIds.push(conv.partnerId);
-      }
-    });
-
-    const attendances = await Attendance.find({ employeeId: { $in: partnerIds }, date: { $gte: today } }).lean();
-    const activeLeaves = await Leave.find({
-      employeeId: { $in: partnerIds },
-      status: { $regex: /^approved$/i },
-      fromDate: { $lte: endOfDay },
-      toDate: { $gte: today }
-    }).lean();
-
-    result.forEach(conv => {
-      if (conv.type === 'direct' && conv.partnerId) {
-        const isLeave = activeLeaves.find(l => l.employeeId && l.employeeId.toString() === conv.partnerId.toString());
-        const att = attendances.find(a => a.employeeId && a.employeeId.toString() === conv.partnerId.toString());
-        
-        let finalStatus = 'Offline';
-        if (isLeave) {
-          finalStatus = 'On Leave';
-        } else if (att && !att.checkOut) {
-          const pStatus = conv.partnerStatus;
-          if (pStatus && pStatus.toLowerCase() !== 'offline') {
-             finalStatus = pStatus.charAt(0).toUpperCase() + pStatus.slice(1);
-          } else {
-             finalStatus = 'Online';
-          }
-        }
-        conv.partnerStatus = finalStatus;
-      }
     });
 
     // Deduplicate in case of historical duplicate data
@@ -201,8 +155,6 @@ class ChatService {
       parentMessage: data.parentMessage || null,
       status: 'sent'
     });
-
-    await Conversation.findByIdAndUpdate(data.conversationId, { updatedAt: new Date() });
 
     const populated = await Message.findById(message._id)
       .populate('sender', 'firstName lastName avatar')
@@ -325,42 +277,40 @@ class ChatService {
   async resendGroupKey(userId, conversationId, targetUserId, encryptedKey) {
     await this._checkAdmin(userId, conversationId);
     
-    // Make sure target is a member
-    const targetMember = await ConversationMember.findOne({ user: targetUserId, conversation: conversationId });
+    const targetMember = await ConversationMember.findOne({ 
+      user: targetUserId, 
+      conversation: conversationId 
+    });
     if (!targetMember) throw new Error('Target user is not a member of this group');
 
     await GroupKey.findOneAndUpdate(
       { conversation: conversationId, user: targetUserId },
-      { encryptedKey, encryptedBy: userId },
+      { 
+        encryptedKey, 
+        encryptedBy: userId 
+      },
       { upsert: true }
     );
   }
 
-  async reEncryptGroupKeys(userId, conversationId, keys, version = 1) {
-    await this._checkAdmin(userId, conversationId); // Must be an admin/owner to do this
+  async reEncryptGroupKeys(userId, conversationId, keys) {
+    await this._checkAdmin(userId, conversationId);
 
-    const bulkOps = keys.map(k => ({
-      updateOne: {
-        filter: { conversation: conversationId, user: k.userId, version: version },
-        update: {
-          $set: {
-            encryptedKey: k.encryptedKey,
-            encryptedBy: userId
-          }
-        },
-        upsert: true
-      }
+    await GroupKey.deleteMany({ conversation: conversationId });
+
+    const keysToInsert = keys.map(k => ({
+      conversation: conversationId,
+      user: k.userId,
+      encryptedKey: k.encryptedKey,
+      encryptedBy: userId
     }));
 
-    if (bulkOps.length > 0) {
-      await GroupKey.bulkWrite(bulkOps);
-    }
+    await GroupKey.insertMany(keysToInsert);
 
-    // 3. Notify members
     const { getIO } = require('../sockets');
     const io = getIO();
     if (io) {
-      io.to(conversationId.toString()).emit('group_key_updated', { conversationId });
+      io.to(conversationId.toString()).emit('group_keys_updated', { conversationId });
     }
     
     await this._createSystemMessage(conversationId, userId, 'KEYS_UPDATED', `Re-encrypted group keys for all members`);

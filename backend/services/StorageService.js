@@ -32,11 +32,10 @@ class StorageService {
       return `/uploads/${filename}`;
     } else if (this.provider === 'cloudinary') {
       return new Promise((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_chunked_stream(
+        const uploadStream = cloudinary.uploader.upload_stream(
           {
-            resource_type: 'raw',
+            resource_type: 'raw',  // E2EE files are encrypted binary — must use raw
             folder: 'ledgzo_e2ee',
-            chunk_size: 6000000 // 6MB chunk size to respect Cloudinary's default 10MB per-request limit
           },
           (error, result) => {
             if (error) {
